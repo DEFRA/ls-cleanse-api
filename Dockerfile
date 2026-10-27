@@ -3,8 +3,9 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY . .
 WORKDIR "/src"
-RUN dotnet test LsCleanseApi.Test
-RUN dotnet publish LsCleanseApi -c Release -o /app/publish /p:UseAppHost=false
+RUN dotnet test Cleanse.Test
+RUN dotnet test Cleanse.Rules.Test
+RUN dotnet publish Cleanse -c Release -o /app/publish /p:UseAppHost=false
 
 # Final production image
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 
@@ -18,4 +19,4 @@ RUN apt update && \
 
 COPY --from=build /app/publish .
 EXPOSE 8085
-ENTRYPOINT ["dotnet", "LsCleanseApi.dll"]
+ENTRYPOINT ["dotnet", "Cleanse.dll"]
