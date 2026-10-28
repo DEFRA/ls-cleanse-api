@@ -38,7 +38,13 @@ internal sealed class KrdsSqliteDataSource : ICtsSamDataSource
                h.FeatureName,
                (SELECT GROUP_CONCAT(DISTINCT p.AnimalSpeciesCode)
                   FROM HoldingAnimalProfile p
-                 WHERE p.HoldingId = h.Id)
+                 WHERE p.HoldingId = h.Id),
+               c.LocationAddressName,
+               c.LocationAddress2,
+               h.PaonDescription,
+               h.Street,
+               h.Town,
+               h.Locality
           FROM CtsOpenLocation c
           LEFT JOIN Holding h ON h.Cph = c.Cph
          WHERE c.Cph GLOB '{CphPattern}'
@@ -97,7 +103,13 @@ internal sealed class KrdsSqliteDataSource : ICtsSamDataSource
                 CtsKeeperPostCode = Text(reader, 5),
                 SamHoldingId = Text(reader, 6),
                 SamFeatureName = Text(reader, 7),
-                SamSpeciesCodes = SpeciesCodes(Text(reader, 8))
+                SamSpeciesCodes = SpeciesCodes(Text(reader, 8)),
+                CtsLocationName = Text(reader, 9),
+                CtsLocationAddress2 = Text(reader, 10),
+                SamAddressName = Text(reader, 11),
+                SamStreet = Text(reader, 12),
+                SamTown = Text(reader, 13),
+                SamLocality = Text(reader, 14)
             };
         }
     }

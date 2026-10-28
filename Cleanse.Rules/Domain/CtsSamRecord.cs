@@ -22,10 +22,31 @@ public sealed record CtsSamRecord
 
     public string? CtsKeeperPostCode { get; init; }
 
+    /// <summary>The CTS location's name line (<c>LocationAddressName</c>). Upper case in the source.</summary>
+    public string? CtsLocationName { get; init; }
+
+    /// <summary>
+    /// The second line of the CTS location address. CTS often files the holding name here when
+    /// the name line is a trading name, a care-of line or a building.
+    /// </summary>
+    public string? CtsLocationAddress2 { get; init; }
+
     /// <summary>Null when SAM holds no holding for this CPH.</summary>
     public string? SamHoldingId { get; init; }
 
     public string? SamFeatureName { get; init; }
+
+    /// <summary>
+    /// SAM's address building name (<c>PaonDescription</c>), as distinct from the holding's
+    /// <see cref="SamFeatureName"/>. Null when SAM records none.
+    /// </summary>
+    public string? SamAddressName { get; init; }
+
+    public string? SamStreet { get; init; }
+
+    public string? SamTown { get; init; }
+
+    public string? SamLocality { get; init; }
 
     /// <summary>The distinct animal species codes SAM records against the holding.</summary>
     public IReadOnlySet<string> SamSpeciesCodes { get; init; } =

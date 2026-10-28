@@ -14,7 +14,7 @@ public class CleanseRuleRegistryTests
     {
         var registry = new CleanseRuleRegistry(CleanseRuleRegistry.CreateDefaultRules());
 
-        Assert.Equal(["2", "1"], registry.All.Select(r => r.Descriptor.RuleNumber));
+        Assert.Equal(["2", "1", "3"], registry.All.Select(r => r.Descriptor.RuleNumber));
     }
 
     [Fact]
@@ -80,6 +80,17 @@ public class CleanseRuleRegistryTests
         var registry = new CleanseRuleRegistry(CleanseRuleRegistry.CreateDefaultRules());
 
         Assert.Empty(registry.Evaluate(Records.Context(Records.InBoth())));
+    }
+
+    [Fact]
+    public void Rules_1_and_3_are_independent_of_each_other()
+    {
+        var registry = new CleanseRuleRegistry(CleanseRuleRegistry.CreateDefaultRules());
+        var record = Records.InBoth("01/036/8000", "SHP") with { CtsLocationName = "MANOR FARM" };
+
+        var findings = registry.Evaluate(Records.Context(record));
+
+        Assert.Equal(["1", "3"], findings.Select(f => f.Descriptor.RuleNumber));
     }
 
     private sealed class OnHoldRule : ICleanseRule
