@@ -404,11 +404,30 @@ over HTTP; today the calls are in-process.
 | --- | --- | --- |
 | `2` | `02` `CTS-CPH-missing-in-Sam` | A CTS open location's CPH is absent from the SAM `Holding` dataset. |
 | `1` | `01` `No-cattle-unit-in-Sam` | The SAM holding records no animal species code of `BSN`, `CTT` or `BFF`. |
+| `3` | `03` `Holding-name-mismatch-in-Sam` | The SAM holding's `FeatureName` is missing, a placeholder, or does not identify the same place as the CTS location name. |
 
 Rule 2 is the primary rule: when it fires there is no SAM holding to compare against, so every
-other rule is necessarily silent for that record. Rule 1 says so itself, through its
+other rule is necessarily silent for that record. Rules 1 and 3 say so themselves, through their
 precondition, rather than the engine branching on it — which is what lets a rule be added without
 editing the engine.
+
+Rule 3 looks for names that identify a *different place*, not names that are *written
+differently*. Both names are canonicalised the same way — case, punctuation, spacing, common
+abbreviations (`FM`), stop words (`The`, `Ltd`) and locative noise (`Land at`, `Fields off`,
+`T/A`, a house number) are removed — and then taken to be the same place if they are equal, equal
+once `farm` is ignored, one contains the other, or they are within spelling tolerance (Levenshtein
+similarity ≥ 0.85, except where a qualifier such as East/West is swapped). The CTS name line is
+tried first and then address line 2, which is where CTS files the holding name when the name
+line is a trading name or a building. When neither is equivalent but the CTS name is not a place
+name at all — a numbered address, a `T/A` line, or the holding's own street or village — the rule
+stays silent, since nothing in SAM could be corrected against it. The full definition, with the
+word lists, is `HoldingNameEquivalence`; its baseline against the snapshot of 26 October 2026 is
+pinned by `Rule03BaselineTests`.
+
+Each rule 3 issue carries `nameMismatchReason` (`missing`, `placeholder` or `different`), a
+`nameSimilarity` score for near-miss triage, and `samAddressName` with
+`samAddressNameMatchesCts`: when that is `true`, SAM's own address already holds the CTS name and
+the correction is to copy it into `FeatureName`.
 
 An issue is keyed on the rule number and the CPH, so the same anomaly re-detected
 on a later night upserts onto the same record and keeps its triage state. Each issue carries the

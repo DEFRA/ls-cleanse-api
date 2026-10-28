@@ -61,7 +61,8 @@ public sealed class CleanseRuleRegistry
     public static IEnumerable<ICleanseRule> CreateDefaultRules() =>
     [
         new Rule02CtsCphNotInSam(),
-        new Rule01SamNoCattleUnit()
+        new Rule01SamNoCattleUnit(),
+        new Rule03SamHoldingNameMismatch()
     ];
 
     public ICleanseRule? ByNumber(string ruleNumber) =>
