@@ -23,7 +23,7 @@ public class RuleEngineEndpointTests(ApiFactory factory) : IClassFixture<ApiFact
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var rules = (await response.ReadJsonAsync()).EnumerateArray().ToArray();
-        Assert.Equal(3, rules.Length);
+        Assert.Equal(4, rules.Length);
 
         Assert.Equal("2", rules[0].GetProperty("ruleNumber").GetString());
         Assert.Equal("02", rules[0].GetProperty("errorCode").GetString());
@@ -38,6 +38,11 @@ public class RuleEngineEndpointTests(ApiFactory factory) : IClassFixture<ApiFact
         Assert.Equal("03", rules[2].GetProperty("errorCode").GetString());
         Assert.Equal("Holding-name-mismatch-in-Sam", rules[2].GetProperty("errorDescription").GetString());
         Assert.Equal("active", rules[2].GetProperty("status").GetString());
+
+        Assert.Equal("10", rules[3].GetProperty("ruleNumber").GetString());
+        Assert.Equal("10", rules[3].GetProperty("errorCode").GetString());
+        Assert.Equal("Inconsistent-correspondence-addresses-in-CTS-and-Sam", rules[3].GetProperty("errorDescription").GetString());
+        Assert.Equal("active", rules[3].GetProperty("status").GetString());
     }
 
     [Fact]

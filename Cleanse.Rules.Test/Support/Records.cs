@@ -6,7 +6,11 @@ namespace Cleanse.Rules.Test.Support;
 
 internal static class Records
 {
-    /// <summary>A CTS location present in both systems, with a cattle unit in SAM.</summary>
+    /// <summary>
+    /// A CTS location present in both systems, with a cattle unit in SAM. It has no CTS name line
+    /// (rule 3's tests rely on that) and the holder writes from the holding, at the postcode CTS
+    /// has, so it is clean for rule 10 too.
+    /// </summary>
     public static CtsSamRecord InBoth(string cph = "01/036/8000", params string[] speciesCodes) => new()
     {
         CtsLocationNumber = $"AH-{cph}",
@@ -15,11 +19,20 @@ internal static class Records
         CtsCountyName = "Bedfordshire",
         CtsKeeperSurname = "HEYWOOD LTD",
         CtsKeeperPostCode = "MK45 5WF",
+        CtsLocationAddress = new CtsAddress(null, null, "CLOPHILL", "BEDFORD", null, "MK45 5WF"),
         SamHoldingId = "a8c4dd20-10ad-5f1e-86b3-9b0fdc54db57",
         SamFeatureName = "Wood Farm",
+        SamHoldingPostcode = "MK45 5WF",
+        SamPartyAddresses = [Holder("C100", "MK45 5WF")],
         SamSpeciesCodes = new HashSet<string>(
             speciesCodes.Length == 0 ? ["CTT"] : speciesCodes, StringComparer.OrdinalIgnoreCase)
     };
+
+    public static SamPartyAddress Holder(string partyId, string? postcode, string? line1 = "Wood Farm") =>
+        Party(partyId, SamPartyAddress.HolderRole, postcode, line1);
+
+    public static SamPartyAddress Party(string partyId, string role, string? postcode, string? line1 = "Wood Farm") =>
+        new(partyId, role, line1, "Bedford Road", "Clophill", "BEDFORD", postcode);
 
     /// <summary>A CTS location with no matching SAM holding.</summary>
     public static CtsSamRecord CtsOnly(string cph = "02/100/0001") => new()
