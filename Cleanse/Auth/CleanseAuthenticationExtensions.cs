@@ -121,6 +121,10 @@ public static class CleanseAuthenticationExtensions
             options.Authority = jwt.Issuer;
             options.RequireHttpsMetadata = true;
 
+            // The JWKS fetch is the one outbound call authentication makes. Bounded so a stalled
+            // issuer fails the request rather than holding it until the framework's 60s default.
+            options.BackchannelTimeout = TimeSpan.FromSeconds(10);
+
             // The STS issuer is an external AWS URL and all egress is blocked except via Squid.
             // Without this the JWKS fetch hangs and authentication fails at first use.
             options.BackchannelHttpHandler = new ProxyHttpMessageHandler(
