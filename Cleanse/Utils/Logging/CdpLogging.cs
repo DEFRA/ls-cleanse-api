@@ -19,6 +19,7 @@ public static class CdpLogging
         var mainLogger = new LoggerConfiguration()
             .ReadFrom.Configuration(ctx.Configuration)
             .Enrich.WithEcsHttpContext(httpAccessor!)
+            .Enrich.With<RedactQueryStringEnricher>()
             .Enrich.FromLogContext()
             .Filter.With<AuditLogger.Filters.ExcludeAuditEvents>()
             .CreateLogger();

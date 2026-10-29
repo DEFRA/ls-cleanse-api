@@ -13,13 +13,33 @@ using Cleanse.Storage;
 using Cleanse.Utils;
 using Cleanse.Utils.Http;
 using Cleanse.Utils.Logging;
+using Elastic.CommonSchema.Serilog;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.Timeouts;
 using Serilog;
 
-var app = BuildApp(args);
-await app.Services.InitialiseStorageAsync();
-await app.RunAsync();
+// A bootstrap logger, so that a failure before the host has built its own — a refused
+// configuration value, say — is written as ECS JSON rather than as a stack trace on stderr.
+// Deliberately a plain logger rather than CreateBootstrapLogger(): UseSerilog replaces it with
+// the host's own once built, and a shared reloadable logger would be contended when several
+// hosts start in one process, as the API tests do.
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console(new EcsTextFormatter())
+    .CreateLogger();
+
+try
+{
+    var app = BuildApp(args);
+    await app.Services.InitialiseStorageAsync();
+    await app.RunAsync();
+    return 0;
+}
+catch (Exception ex) when (ex is not HostAbortedException)
+{
+    Log.Fatal(ex, "The service could not start");
+    await Log.CloseAndFlushAsync();
+    return 1;
+}
 
 [ExcludeFromCodeCoverage]
 static WebApplication BuildApp(string[] args)
