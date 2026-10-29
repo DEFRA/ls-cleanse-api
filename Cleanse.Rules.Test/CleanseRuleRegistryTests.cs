@@ -14,7 +14,7 @@ public class CleanseRuleRegistryTests
     {
         var registry = new CleanseRuleRegistry(CleanseRuleRegistry.CreateDefaultRules());
 
-        Assert.Equal(["2", "1", "3"], registry.All.Select(r => r.Descriptor.RuleNumber));
+        Assert.Equal(["2", "1", "3", "10"], registry.All.Select(r => r.Descriptor.RuleNumber));
     }
 
     [Fact]
@@ -53,7 +53,7 @@ public class CleanseRuleRegistryTests
     }
 
     [Fact]
-    public void Rule_1_stays_silent_when_rule_2_fires()
+    public void Subordinate_rules_stay_silent_when_rule_2_fires()
     {
         var registry = new CleanseRuleRegistry(CleanseRuleRegistry.CreateDefaultRules());
 
@@ -91,6 +91,23 @@ public class CleanseRuleRegistryTests
         var findings = registry.Evaluate(Records.Context(record));
 
         Assert.Equal(["1", "3"], findings.Select(f => f.Descriptor.RuleNumber));
+    }
+
+    [Fact]
+    public void Rule_10_is_independent_of_rules_1_and_3()
+    {
+        var registry = new CleanseRuleRegistry(CleanseRuleRegistry.CreateDefaultRules());
+        var record = Records.InBoth("01/036/8000", "SHP") with
+        {
+            CtsLocationName = "MANOR FARM",
+            SamPartyAddresses = [Records.Holder("C100", "LS1 1AA")]
+        };
+
+        var findings = registry.Evaluate(Records.Context(record));
+
+        Assert.Equal(["1", "3", "10"], findings.Select(f => f.Descriptor.RuleNumber));
+        Assert.Equal(["10"], registry.Evaluate(Records.Context(record with { SamSpeciesCodes = new HashSet<string> { "CTT" }, CtsLocationName = null }))
+            .Select(f => f.Descriptor.RuleNumber));
     }
 
     private sealed class OnHoldRule : ICleanseRule

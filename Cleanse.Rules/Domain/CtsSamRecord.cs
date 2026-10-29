@@ -31,6 +31,22 @@ public sealed record CtsSamRecord
     /// </summary>
     public string? CtsLocationAddress2 { get; init; }
 
+    /// <summary>
+    /// The whole CTS location address group. <see cref="CtsLocationName"/> and
+    /// <see cref="CtsLocationAddress2"/> are its first two lines, kept as they are for rule 3.
+    /// </summary>
+    public CtsAddress? CtsLocationAddress { get; init; }
+
+    /// <summary>
+    /// The CTS correspondence address group: where CTS sends mail when that is not the location.
+    /// Null for three records in four, which is when the location address is the correspondence
+    /// address.
+    /// </summary>
+    public CtsAddress? CtsCorrespondenceAddress { get; init; }
+
+    /// <summary>The postcode of the CTS contact group, the rarest of the four.</summary>
+    public string? CtsContactPostCode { get; init; }
+
     /// <summary>Null when SAM holds no holding for this CPH.</summary>
     public string? SamHoldingId { get; init; }
 
@@ -47,6 +63,15 @@ public sealed record CtsSamRecord
     public string? SamTown { get; init; }
 
     public string? SamLocality { get; init; }
+
+    /// <summary>The postcode of SAM's holding (feature) address. Null for one holding in forty.</summary>
+    public string? SamHoldingPostcode { get; init; }
+
+    /// <summary>
+    /// The contact addresses of every party SAM involves with the holding, one entry per party
+    /// and role. Empty when SAM holds no holding, or no parties for it.
+    /// </summary>
+    public IReadOnlyList<SamPartyAddress> SamPartyAddresses { get; init; } = [];
 
     /// <summary>The distinct animal species codes SAM records against the holding.</summary>
     public IReadOnlySet<string> SamSpeciesCodes { get; init; } =

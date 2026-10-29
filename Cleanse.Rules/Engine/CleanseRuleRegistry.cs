@@ -62,7 +62,8 @@ public sealed class CleanseRuleRegistry
     [
         new Rule02CtsCphNotInSam(),
         new Rule01SamNoCattleUnit(),
-        new Rule03SamHoldingNameMismatch()
+        new Rule03SamHoldingNameMismatch(),
+        new Rule10CorrespondenceAddressMismatch()
     ];
 
     public ICleanseRule? ByNumber(string ruleNumber) =>

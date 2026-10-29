@@ -405,11 +405,12 @@ over HTTP; today the calls are in-process.
 | `2` | `02` `CTS-CPH-missing-in-Sam` | A CTS open location's CPH is absent from the SAM `Holding` dataset. |
 | `1` | `01` `No-cattle-unit-in-Sam` | The SAM holding records no animal species code of `BSN`, `CTT` or `BFF`. |
 | `3` | `03` `Holding-name-mismatch-in-Sam` | The SAM holding's `FeatureName` is missing, a placeholder, or does not identify the same place as the CTS location name. |
+| `10` | `10` `Inconsistent-correspondence-addresses-in-CTS-and-Sam` | No SAM CPH holder's correspondence postcode is the postcode CTS sends correspondence to. |
 
 Rule 2 is the primary rule: when it fires there is no SAM holding to compare against, so every
-other rule is necessarily silent for that record. Rules 1 and 3 say so themselves, through their
-precondition, rather than the engine branching on it — which is what lets a rule be added without
-editing the engine.
+other rule is necessarily silent for that record. Rules 1, 3 and 10 say so themselves, through
+their precondition, rather than the engine branching on it — which is what lets a rule be added
+without editing the engine.
 
 Rule 3 looks for names that identify a *different place*, not names that are *written
 differently*. Both names are canonicalised the same way — case, punctuation, spacing, common
@@ -428,6 +429,29 @@ Each rule 3 issue carries `nameMismatchReason` (`missing`, `placeholder` or `dif
 `nameSimilarity` score for near-miss triage, and `samAddressName` with
 `samAddressNameMatchesCts`: when that is `true`, SAM's own address already holds the CTS name and
 the correction is to copy it into `FeatureName`.
+
+Rule 10 compares *correspondence* addresses, not the location's. On the SAM side that is the
+contact address of every party holding the CPH (`PartyRole.Role = 'holder'`), or the keeper and
+owner parties for the few holdings with no holder; the `Holding` row's own address is the
+location and is not a candidate. On the CTS side it is the `Correspondence*` group when CTS has
+one and the `Location*` group otherwise, which is where CTS itself sends mail — the keeper group
+is the location in 93% of records and the contact group is rare, so neither is compared. Only the
+postcode is compared, literally after case, spacing and punctuation are removed (a letter O for a
+zero in CTS is a finding, not noise), and an issue is raised when **no** SAM party's postcode is
+the CTS postcode: if one holder's address agrees with CTS, the two systems agree on where mail
+goes. When either side has no postcode the rule is silent. Comparing the premises within a shared
+postcode is deferred until it has an equivalence vocabulary and a baseline of its own, as rule 3
+has. One issue is raised per CPH however many holders it has; the finding lists them all.
+
+Each rule 10 issue carries both addresses (`samCorrespondenceAddress`, `ctsCorrespondenceAddress`)
+with their postcodes and the SAM party ids, `ctsCorrespondenceSource` (`correspondence` or
+`location`), `samPostcodeKnownToCts` with `ctsGroupsMatchingSam` when CTS holds SAM's postcode in
+another group (usually a CTS correspondence override pointing away from the farm), and
+`samCorrespondenceIsHoldingAddress`, which separates a postcode wrong in one system (the holder
+writes from the holding) from a holder who corresponds from somewhere else. Its baseline against
+the snapshot of 26 October 2026 — 2,912 issues from 40,473 pairs, 1,440 of them against a CTS
+correspondence group — is pinned by `Rule10BaselineTests`, which is skipped wherever that
+snapshot is not present.
 
 An issue is keyed on the rule number and the CPH, so the same anomaly re-detected
 on a later night upserts onto the same record and keeps its triage state. Each issue carries the
@@ -450,8 +474,8 @@ selects how it is obtained:
 
 SQLite needs random access to a real file and cannot read a snapshot from a `Stream`, which is why
 the deployed path downloads rather than streams. The whole pass is one query — CTS open locations
-left-joined to SAM holdings, with species codes from a correlated subquery — so it costs a single
-scan rather than a query per holding.
+left-joined to SAM holdings, with species codes and the holding's party addresses from correlated
+subqueries — so it costs a single scan rather than a query per holding.
 
 ### Scheduling and concurrency
 
