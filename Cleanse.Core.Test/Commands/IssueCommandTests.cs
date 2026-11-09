@@ -35,7 +35,8 @@ public class IssueCommandTests
         var entry = Assert.Single(audit.Items, e => e.Kind == nameof(AuditEventKind.IssueAssigned));
         Assert.Equal("alice", entry.ActorId);
         Assert.Equal("human", entry.ActorKind);
-        Assert.Equal("bob", Assert.Single(entry.Changes).To);
+        Assert.Equal("bob", Assert.Single(entry.Changes, c => c.Field == "AssignedTo").To);
+        Assert.Contains(entry.Changes, c => c.Field == "AssignmentDetachedAtUtc");
     }
 
     [Fact]

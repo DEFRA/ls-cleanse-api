@@ -7,6 +7,9 @@ public interface IUserDirectory
     Task<Result<UserDto>> RecordLoginAsync(
         RecordUserLoginRequest request, CancellationToken cancellationToken = default);
 
+    Task<Result<RegisterUsersResultDto>> RegisterAsync(
+        RegisterUsersRequest request, CancellationToken cancellationToken = default);
+
     Task<Result<PagedResult<UserDto>>> SearchAsync(
-        string tenantId, string clientId, PageRequest page, CancellationToken cancellationToken = default);
+        PageRequest page, CancellationToken cancellationToken = default);
 }

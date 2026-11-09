@@ -25,6 +25,7 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
             {Db.Issue.AssignedTo} = EXCLUDED.{Db.Issue.AssignedTo},
             {Db.Issue.AssignedUserId} = EXCLUDED.{Db.Issue.AssignedUserId},
             {Db.Issue.AssignedUserFullName} = EXCLUDED.{Db.Issue.AssignedUserFullName},
+            {Db.Issue.AssignmentDetachedAtUtc} = EXCLUDED.{Db.Issue.AssignmentDetachedAtUtc},
             {Db.Issue.Notes} = EXCLUDED.{Db.Issue.Notes},
             {Db.Issue.ExternalNotes} = EXCLUDED.{Db.Issue.ExternalNotes},
             {Db.Issue.Priority} = EXCLUDED.{Db.Issue.Priority},
@@ -192,6 +193,7 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
                     await writer.WriteNullAsync(cancellationToken);
                 }
                 await WriteNullableTextAsync(writer, row.AssignedUserFullName, cancellationToken);
+                await WriteNullableTimestampAsync(writer, row.AssignmentDetachedAtUtc, cancellationToken);
             }
 
             await writer.CompleteAsync(cancellationToken);
@@ -342,7 +344,8 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
         reader.IsDBNull(16) ? null : reader.GetFieldValue<DateTimeOffset>(16),
         reader.GetInt32(17),
         reader.IsDBNull(18) ? null : reader.GetGuid(18),
-        reader.IsDBNull(19) ? null : reader.GetString(19)));
+        reader.IsDBNull(19) ? null : reader.GetString(19),
+        reader.IsDBNull(20) ? null : reader.GetFieldValue<DateTimeOffset>(20)));
 
     internal static void AddIssueParameters(NpgsqlCommand command, IssueRow row, string suffix = "")
     {
@@ -383,6 +386,10 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
         {
             Value = (object?)row.AssignedUserFullName ?? DBNull.Value
         });
+        command.Parameters.Add(new NpgsqlParameter(names[20], NpgsqlDbType.TimestampTz)
+        {
+            Value = (object?)row.AssignmentDetachedAtUtc ?? DBNull.Value
+        });
     }
 
     /// <summary>
@@ -397,14 +404,15 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
             "id", "group_id", "rule_id", "run_id", "status", "workflow_status", "assigned_to",
             "notes", "external_notes", "priority", "external_received_at_utc",
             "suppression_expires_at_utc", "context", "created_at_utc", "updated_at_utc",
-            "activated_at_utc", "deactivated_at_utc", "version", "assigned_user_id", "assigned_user_full_name"
+            "activated_at_utc", "deactivated_at_utc", "version", "assigned_user_id", "assigned_user_full_name",
+            "assignment_detached_at_utc"
         ]
         :
         [
             $"id{suffix}", $"g{suffix}", $"ru{suffix}", $"rn{suffix}", $"s{suffix}", $"w{suffix}",
             $"a{suffix}", $"n{suffix}", $"xn{suffix}", $"p{suffix}", $"xr{suffix}", $"e{suffix}",
             $"c{suffix}", $"cr{suffix}", $"u{suffix}", $"ac{suffix}", $"de{suffix}", $"v{suffix}",
-            $"au{suffix}", $"an{suffix}"
+            $"au{suffix}", $"an{suffix}", $"ad{suffix}"
         ];
 
     internal static string IssueValuesClause(string suffix = "") =>

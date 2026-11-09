@@ -26,7 +26,8 @@ internal static class DtoMappings
         issue.DeactivatedAtUtc,
         issue.Version,
         issue.AssignedUserId,
-        issue.AssignedUserFullName);
+        issue.AssignedUserFullName,
+        issue.AssignmentDetachedAtUtc);
 
     public static RuleRunDto ToDto(this RuleRun run, DateTimeOffset now) => new(
         run.RunId,

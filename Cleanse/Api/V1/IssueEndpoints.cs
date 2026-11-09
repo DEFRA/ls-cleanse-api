@@ -34,6 +34,7 @@ public static class IssueEndpoints
         group.MapPut("/{id}/assignee", Assign)
             .WithName("AssignIssue")
             .WithSummary("Assign or unassign an issue.")
+            .WithDescription("Send userId (null to unassign), or the legacy assignTo text. Either way the assignment then belongs to Cleanse: later SPOL imports leave it unchanged.")
             .Produces<IssueDto>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -136,15 +137,8 @@ public static class IssueEndpoints
             }
 
             var assigned = await dispatcher.SendAsync(new AssignKnownUserCommand(
-                ParseIssueId(id), request.UserId, request.TenantId, request.ClientId,
-                user.ToActor(), request.ExpectedVersion), cancellationToken);
+                ParseIssueId(id), request.UserId, user.ToActor(), request.ExpectedVersion), cancellationToken);
             return assigned.ToHttpResult();
-        }
-
-        if (request.TenantId is not null || request.ClientId is not null)
-        {
-            return TypedResults.Problem(title: "Invalid request", statusCode: 400,
-                detail: "The scoped assignment path requires an explicit userId (or null to unassign).");
         }
 
         var result = await dispatcher.SendAsync(

@@ -55,9 +55,12 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
             entity.Property(e => e.FullName).HasColumnName("full_name").HasMaxLength(256);
             entity.Property(e => e.FirstLoggedInAtUtc).HasColumnName("first_logged_in_at_utc");
             entity.Property(e => e.LastLoggedInAtUtc).HasColumnName("last_logged_in_at_utc");
+            entity.Property(e => e.Email).HasColumnName("email").HasMaxLength(320);
             entity.HasIndex(e => new { e.Issuer, e.ClientId, e.Subject })
                 .IsUnique().HasDatabaseName("ux_users_identity");
-            entity.HasIndex(e => new { e.TenantId, e.ClientId, e.Id }).HasDatabaseName("ix_users_scope");
+            // Stored lower-case, so a plain unique index is case-insensitive in effect.
+            entity.HasIndex(e => e.Email).IsUnique().HasDatabaseName("ux_users_email");
+            entity.HasIndex(e => new { e.TenantId, e.ObjectId }).HasDatabaseName("ix_users_object");
         });
 
     /// <summary>
@@ -108,6 +111,7 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
             entity.Property(e => e.AssignedTo).HasColumnName(Db.Issue.AssignedTo);
             entity.Property(e => e.AssignedUserId).HasColumnName(Db.Issue.AssignedUserId);
             entity.Property(e => e.AssignedUserFullName).HasColumnName(Db.Issue.AssignedUserFullName);
+            entity.Property(e => e.AssignmentDetachedAtUtc).HasColumnName(Db.Issue.AssignmentDetachedAtUtc);
             entity.HasOne<UserRow>().WithMany().HasForeignKey(e => e.AssignedUserId)
                 .OnDelete(DeleteBehavior.Restrict);
             entity.Property(e => e.Notes).HasColumnName(Db.Issue.Notes);

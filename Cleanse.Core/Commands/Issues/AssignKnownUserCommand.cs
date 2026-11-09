@@ -7,8 +7,6 @@ namespace Cleanse.Core.Commands.Issues;
 public sealed record AssignKnownUserCommand(
     IssueId IssueId,
     Guid? UserId,
-    string? TenantId,
-    string? ClientId,
     Actor Actor,
     int? ExpectedVersion = null) : ICommand<IssueDto>;
 
@@ -19,19 +17,13 @@ internal sealed class AssignKnownUserCommandHandler(IUserStore users, IssueMutat
         AssignKnownUserCommand command, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(command);
-        if (string.IsNullOrWhiteSpace(command.TenantId) || command.TenantId.Length > 64 ||
-            string.IsNullOrWhiteSpace(command.ClientId) || command.ClientId.Length > 64)
-        {
-            return DomainErrors.Validation("tenantId and clientId are required and must be at most 64 characters.");
-        }
-
         KnownUser? user = null;
         if (command.UserId is { } id)
         {
-            user = await users.GetAsync(id, command.TenantId, command.ClientId, cancellationToken);
+            user = await users.GetAsync(id, cancellationToken);
             if (user is null)
             {
-                return DomainErrors.Validation("userId must identify a known user in the supplied tenant and client scope.");
+                return DomainErrors.Validation("userId must identify a known user.");
             }
         }
 

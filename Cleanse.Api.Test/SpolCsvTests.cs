@@ -113,6 +113,64 @@ public class SpolCsvTests
         Assert.Equal("Letter/email sent", contacts[^1].Column);
     }
 
+    [Theory]
+    [InlineData("27/11/2025", 2025, 11, 27)]
+    [InlineData("05/12/2025", 2025, 12, 5)]
+    [InlineData("5/12/2025", 2025, 12, 5)]
+    [InlineData("05/12/2025 00:00", 2025, 12, 5)]
+    [InlineData("2025-12-05T00:00:00Z", 2025, 12, 5)]
+    public void Dates_are_read_as_uk_day_first_as_well_as_iso(string source, int year, int month, int day)
+    {
+        var rows = SpolCsvReader.Read(Csv(Row("01/036/8000", "1", "Completed", received: source)), "cts-sam").ToList();
+
+        Assert.Equal(new DateTimeOffset(year, month, day, 0, 0, 0, TimeSpan.Zero), Assert.Single(rows).DateReceived);
+    }
+
+    [Fact]
+    public void A_slashed_date_that_is_not_uk_shaped_is_not_read_as_us()
+    {
+        var rows = SpolCsvReader.Read(Csv(Row("01/036/8000", "1", "Completed", received: "12/27/2025")), "cts-sam").ToList();
+
+        Assert.Null(Assert.Single(rows).DateReceived);
+    }
+
+    [Fact]
+    public void A_uk_date_in_summer_time_is_the_same_instant_as_the_iso_export_of_that_day()
+    {
+        var plain = SpolCsvReader.Read(Csv(Row("01/036/8000", "1", "Completed",
+            received: "01/04/2026", first: "01/04/2026")), "cts-sam").Single();
+        var iso = SpolCsvReader.Read(Csv(Row("01/036/8000", "1", "Completed",
+            received: "2026-03-31T23:00:00Z", first: "2026-03-31T23:00:00Z")), "cts-sam").Single();
+
+        Assert.Equal(new DateTimeOffset(2026, 3, 31, 23, 0, 0, TimeSpan.Zero), plain.DateReceived);
+        Assert.Equal(iso.DateReceived, plain.DateReceived);
+        Assert.Equal(iso.Contacts[0].AtUtc, plain.Contacts[0].AtUtc);
+    }
+
+    [Fact]
+    public void The_schema_line_of_an_export_with_schema_is_skipped()
+    {
+        const string schemaLine =
+            "ListSchema={\"schemaXmlList\":[\"<Field Type=\\\"User\\\" DisplayName=\\\"Assigned to\\\" />\",\"<Field Name=\\\"x\\\"/>\"]}";
+        var text = string.Join("\n", schemaLine, Header,
+            Row("01/036/8000", "1", "Completed").Replace("a@b.gov.uk", "Andrew.Agius@apha.gov.uk", StringComparison.Ordinal));
+
+        Assert.True(SpolCsvReader.TryValidateHeader(new MemoryStream(Encoding.UTF8.GetBytes(text)), out var error), error);
+        var row = Assert.Single(SpolCsvReader.Read(new MemoryStream(Encoding.UTF8.GetBytes(text)), "cts-sam"));
+        Assert.Equal("01/036/8000", row.Cph);
+        Assert.Equal("Andrew.Agius@apha.gov.uk", row.AssignedTo);
+        Assert.Equal(3, row.RowNumber);
+    }
+
+    [Fact]
+    public void A_file_without_a_schema_line_keeps_its_first_line_as_the_header()
+    {
+        var row = Assert.Single(SpolCsvReader.Read(Csv(Row("01/036/8000", "1", "Completed")), "cts-sam"));
+
+        Assert.Equal("01/036/8000", row.Cph);
+        Assert.Equal(2, row.RowNumber);
+    }
+
     [Fact]
     public void Notes_containing_newlines_survive_parsing()
     {
@@ -176,6 +234,22 @@ public class SpolCsvTests
 
         Assert.Single(batch.Rows);
         Assert.Empty(batch.Invalid);
+    }
+
+    [Fact]
+    public void Dates_that_look_like_typos_are_reported_but_the_row_is_still_applied()
+    {
+        var batch = SpolRowMapper.Project(SpolCsvReader.Read(
+            Csv(
+                Row("01/045/0197", "6", "Completed", received: "14/10/2016", complete: "14/10/2026"),
+                Row("02/055/0082", "6", "Completed", received: "10/12/2025", complete: "01/12/2025"),
+                Row("03/009/0068", "6", "Completed", received: "15/10/2026", complete: "16/10/2026")),
+            "cts-sam"));
+
+        Assert.Equal(3, batch.Rows.Count);
+        Assert.Equal(2, batch.SuspectDates.Count);
+        Assert.Contains(batch.SuspectDates, s => s.Row.Cph == "01/045/0197");
+        Assert.Contains(batch.SuspectDates, s => s.Row.Cph == "02/055/0082");
     }
 
     [Fact]

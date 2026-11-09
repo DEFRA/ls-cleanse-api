@@ -17,7 +17,7 @@ public static class ImportEndpoints
         group.MapPost(string.Empty, Upload)
             .WithName("UploadImport")
             .WithSummary("Upload an external extract for a group.")
-            .WithDescription("Optional multipart tenantId and clientId must both be nonempty GUIDs or both omitted. A unique exact trimmed full-name match within that scope assigns a known user; otherwise nonblank names remain legacy assignments with non-fatal warnings in the reconciliation report.")
+            .WithDescription("Assigned to is matched by email address first, then by unique full name; an email address nobody has becomes a new user. Names that match no single user stay as text, with a non-fatal warning in the reconciliation report. Assignments changed in Cleanse are left alone. The optional tenantId and clientId fields are accepted for compatibility and no longer affect matching.")
             .Produces<ImportJobDto>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status409Conflict)

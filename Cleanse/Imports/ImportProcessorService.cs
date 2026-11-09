@@ -106,6 +106,7 @@ public sealed class ImportProcessorService(
         }
 
         await RecordUnkeyedRowsAsync(imports, job, batch, cancellationToken);
+        await RecordSuspectDatesAsync(imports, job, batch, cancellationToken);
 
         foreach (var chunk in batch.Rows.Chunk(options.BatchSize))
         {
@@ -121,6 +122,34 @@ public sealed class ImportProcessorService(
                     $"Applying a batch of {chunk.Length} rows failed: {result.Error}");
             }
         }
+    }
+
+    /// <summary>Warnings only: the row is still applied exactly as the source states it.</summary>
+    private async Task RecordSuspectDatesAsync(
+        IImportJobStore imports,
+        ImportJob job,
+        SpolBatch batch,
+        CancellationToken cancellationToken)
+    {
+        if (batch.SuspectDates.Count == 0)
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "Import {ImportJobId} has {Count} row(s) with suspect dates.", job.Id, batch.SuspectDates.Count);
+
+        var rejections = batch.SuspectDates
+            .Take(options.MaxRejectionsRecorded)
+            .Select(s => new ImportJobRejection(
+                job.Id,
+                s.Row.RowNumber,
+                s.Row.ToIssueId().Value,
+                ImportRejectionReasons.SuspectDate,
+                s.Detail))
+            .ToList();
+
+        await imports.AddRejectionsAsync(rejections, cancellationToken);
     }
 
     /// <summary>

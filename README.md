@@ -117,8 +117,9 @@ The API also exposes the run lifecycle used by the rules engine (`POST /v1/runs`
 
 | Method | Route                | Purpose                                                                                      |
 | ------ | -------------------- | -------------------------------------------------------------------------------------------- |
-| `POST` | `/v1/users/logins`   | Record that a user has signed in to the front-end, so that issues can be assigned to them.  |
-| `GET`  | `/v1/users`          | The users who have signed in, paged.                                                         |
+| `POST` | `/v1/users/logins`   | Record that someone has signed in to the front-end. A first sign-in claims the user added for their email address. |
+| `POST` | `/v1/users`          | Add people by email address before they sign in, so issues can be assigned to them.       |
+| `GET`  | `/v1/users`          | Everyone Cleanse knows about, signed in or not, paged and ordered by name.                  |
 | `GET`  | `/v1/diagnostics`    | Dependency checks, issue counts and build information, for the front-end's status page.      |
 
 ## Requirements

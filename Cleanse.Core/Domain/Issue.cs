@@ -28,7 +28,8 @@ public sealed class Issue
         DateTimeOffset? deactivatedAtUtc,
         int version,
         Guid? assignedUserId = null,
-        string? assignedUserFullName = null)
+        string? assignedUserFullName = null,
+        DateTimeOffset? assignmentDetachedAtUtc = null)
     {
         Id = id;
         GroupId = groupId;
@@ -39,6 +40,7 @@ public sealed class Issue
         AssignedTo = assignedTo;
         AssignedUserId = assignedUserId;
         AssignedUserFullName = assignedUserFullName;
+        AssignmentDetachedAtUtc = assignmentDetachedAtUtc;
         Notes = notes;
         ExternalNotes = externalNotes;
         Priority = priority;
@@ -70,6 +72,12 @@ public sealed class Issue
 
     /// <summary>The known user's display name at assignment time; never an identity key.</summary>
     public string? AssignedUserFullName { get; private set; }
+
+    /// <summary>
+    /// When someone first changed the assignment in Cleanse. From then on the assignment is theirs,
+    /// and an external sync no longer changes it.
+    /// </summary>
+    public DateTimeOffset? AssignmentDetachedAtUtc { get; private set; }
 
     public string? Notes { get; private set; }
 
@@ -160,7 +168,8 @@ public sealed class Issue
             snapshot.DeactivatedAtUtc,
             snapshot.Version,
             snapshot.AssignedUserId,
-            snapshot.AssignedUserFullName);
+            snapshot.AssignedUserFullName,
+            snapshot.AssignmentDetachedAtUtc);
     }
 
     public IssueSnapshot ToSnapshot() => new(
@@ -183,7 +192,8 @@ public sealed class Issue
         DeactivatedAtUtc,
         Version,
         AssignedUserId,
-        AssignedUserFullName);
+        AssignedUserFullName,
+        AssignmentDetachedAtUtc);
 
     /// <summary>
     /// Re-detection by a later run. Touches only the run id, the active flag and the context;
@@ -237,13 +247,31 @@ public sealed class Issue
         return Apply(AuditEventKind.IssueDeactivated, [change, deactivated], now);
     }
 
+    /// <summary>A change made in Cleanse, which detaches the assignment from external syncs.</summary>
     public IssueChange AssignTo(string? assignee, DateTimeOffset now) =>
-        Assign(assignee, null, null, now);
+        Assign(assignee, null, null, now, detach: true);
 
+    /// <summary>A change made in Cleanse, which detaches the assignment from external syncs.</summary>
     public IssueChange AssignKnownUser(KnownUser? user, DateTimeOffset now) =>
-        Assign(user?.FullName, user?.Id, user?.FullName, now);
+        Assign(user?.FullName, user?.Id, user?.FullName, now, detach: true);
 
-    private IssueChange Assign(string? assignee, Guid? userId, string? fullName, DateTimeOffset now)
+    /// <summary>
+    /// An external system's assignment: the known user if one was found, otherwise the text as
+    /// given. Ignored once someone has changed the assignment in Cleanse.
+    /// </summary>
+    public IssueChange SyncAssignment(KnownUser? user, string? assignee, DateTimeOffset now)
+    {
+        if (AssignmentDetachedAtUtc is not null)
+        {
+            return IssueChange.None;
+        }
+
+        return user is null
+            ? Assign(assignee, null, null, now, detach: false)
+            : Assign(user.FullName, user.Id, user.FullName, now, detach: false);
+    }
+
+    private IssueChange Assign(string? assignee, Guid? userId, string? fullName, DateTimeOffset now, bool detach)
     {
         var normalised = string.IsNullOrWhiteSpace(assignee) ? null : assignee.Trim();
         var changes = new List<AuditChange>();
@@ -260,6 +288,12 @@ public sealed class Issue
         if (!string.Equals(AssignedUserFullName, fullName, StringComparison.Ordinal))
         {
             changes.Add(new AuditChange(nameof(AssignedUserFullName), AssignedUserFullName, fullName));
+        }
+
+        if (detach && changes.Count > 0 && AssignmentDetachedAtUtc is null)
+        {
+            changes.Add(new AuditChange(nameof(AssignmentDetachedAtUtc), null, Format(now)));
+            AssignmentDetachedAtUtc = now;
         }
 
         AssignedTo = normalised;

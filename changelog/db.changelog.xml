@@ -90,4 +90,12 @@
                  stripComments="false"/>
     </changeSet>
 
+    <changeSet id="0008-pre-registered-users" author="cleanse" runOnChange="false" runInTransaction="false">
+        <comment>Users added by email before they sign in, and assignments that Cleanse owns rather than SPOL.</comment>
+        <sqlFile path="sql/0008_pre_registered_users.sql"
+                 relativeToChangelogFile="true"
+                 splitStatements="false"
+                 stripComments="false"/>
+    </changeSet>
+
 </databaseChangeLog>
