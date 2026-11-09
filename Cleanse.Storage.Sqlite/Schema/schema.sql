@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS issues (
     assigned_to                 TEXT        NULL,
     assigned_user_id            TEXT        NULL REFERENCES users(id) ON DELETE RESTRICT,
     assigned_user_full_name     TEXT        NULL,
+    assignment_detached_at_utc  TEXT        NULL,
     notes                       TEXT        NULL,
     external_notes              TEXT        NULL,
     priority                    TEXT        NULL CHECK (priority IS NULL OR priority IN ('low', 'medium', 'high')),
@@ -169,16 +170,18 @@ CREATE TABLE IF NOT EXISTS data_resets (
 );
 
 CREATE INDEX IF NOT EXISTS ix_data_resets_at ON data_resets (at_utc DESC);
+
+-- Indexes are created by CleanseSqliteDatabase after any upgrade, because an older users table has
+-- no email column for them to index.
 CREATE TABLE IF NOT EXISTS users (
-    id TEXT NOT NULL PRIMARY KEY,
-    issuer TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
-    object_id TEXT NOT NULL,
-    client_id TEXT NOT NULL,
-    full_name TEXT NOT NULL,
-    first_logged_in_at_utc TEXT NOT NULL,
-    last_logged_in_at_utc TEXT NOT NULL
+    id                      TEXT NOT NULL PRIMARY KEY,
+    issuer                  TEXT     NULL,
+    subject                 TEXT     NULL,
+    tenant_id               TEXT     NULL,
+    object_id               TEXT     NULL,
+    client_id               TEXT     NULL,
+    full_name               TEXT NOT NULL,
+    first_logged_in_at_utc  TEXT     NULL,
+    last_logged_in_at_utc   TEXT     NULL,
+    email                   TEXT     NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS ux_users_identity ON users (issuer, client_id, subject);
-CREATE INDEX IF NOT EXISTS ix_users_scope ON users (tenant_id, client_id, id);

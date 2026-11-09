@@ -92,7 +92,40 @@ public static class SpolRowMapper
             })
             .ToList();
 
-        return new SpolBatch(projected, invalid, collapsed);
+        return new SpolBatch(projected, invalid, collapsed, FindSuspectDates(byKey.Values));
+    }
+
+    /// <summary>How far behind the newest received date a row may be before it is called out.</summary>
+    private static readonly TimeSpan MaxReceivedAge = TimeSpan.FromDays(3 * 365);
+
+    /// <summary>
+    /// Dates are reported, never altered: the source is authoritative, but a received date years
+    /// before the rest of the extract, or after its own completion, is almost certainly a typo.
+    /// </summary>
+    private static List<SuspectDate> FindSuspectDates(IEnumerable<SpolRow> rows)
+    {
+        var kept = rows.ToList();
+        var newest = kept.Max(r => r.DateReceived);
+        var suspects = new List<SuspectDate>();
+
+        foreach (var row in kept.OrderBy(r => r.RowNumber))
+        {
+            if (row.DateReceived is not { } received)
+            {
+                continue;
+            }
+
+            if (row.DateComplete is { } complete && complete < received)
+            {
+                suspects.Add(new SuspectDate(row, $"Date Complete {SpolCsvReader.UkDay(complete)} is before Date Received {SpolCsvReader.UkDay(received)}."));
+            }
+            else if (newest is { } latest && latest - received > MaxReceivedAge)
+            {
+                suspects.Add(new SuspectDate(row, $"Date Received {SpolCsvReader.UkDay(received)} is over 3 years older than the newest row."));
+            }
+        }
+
+        return suspects;
     }
 
     private static bool Wins(SpolRow candidate, SpolRow incumbent)
@@ -117,4 +150,7 @@ public static class SpolRowMapper
 public sealed record SpolBatch(
     IReadOnlyList<ExternalIssueRow> Rows,
     IReadOnlyList<SpolRow> Invalid,
-    int DuplicatesCollapsed);
+    int DuplicatesCollapsed,
+    IReadOnlyList<SuspectDate> SuspectDates);
+
+public sealed record SuspectDate(SpolRow Row, string Detail);

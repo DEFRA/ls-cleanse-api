@@ -39,46 +39,39 @@ public class ImportEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
     }
 
     [Theory]
-    [InlineData("  aLeX eXaMpLe  ", 1, true, null)]
-    [InlineData("Alex Example", 2, true, "assignee_ambiguous")]
-    [InlineData("Unknown Person", 1, true, "assignee_unmatched")]
-    [InlineData("Alex Example", 1, false, "assignee_scope_missing")]
-    [InlineData("   ", 1, true, null)]
-    public async Task Import_assigns_only_unique_scoped_names_and_reports_safe_warnings(
-        string name, int sameNameUsers, bool scoped, string? warning)
+    [InlineData("  aLeX eXaMpLe {0}  ", 1, null)]
+    [InlineData("Alex Example {0}", 2, "assignee_ambiguous")]
+    [InlineData("Unknown Person {0}", 1, "assignee_unmatched")]
+    [InlineData("   ", 1, null)]
+    public async Task Import_assigns_only_unique_names_and_reports_safe_warnings(
+        string template, int sameNameUsers, string? warning)
     {
         using var client = factory.CreateAuthenticatedClient();
         var group = $"assignment-{Guid.NewGuid():N}";
-        var tenant = Guid.NewGuid().ToString();
-        var app = Guid.NewGuid().ToString();
+        // Every test in this class shares one directory, so each case brings its own name.
+        var person = $"Alex Example {group}";
+        var name = string.Format(System.Globalization.CultureInfo.InvariantCulture, template, group);
         using var services = factory.Services.CreateScope();
         var users = services.ServiceProvider.GetRequiredService<IUserStore>();
         KnownUser? known = null;
         for (var index = 0; index < sameNameUsers; index++)
         {
             known = await users.UpsertLoginAsync(new KnownUser(Guid.NewGuid(), "https://issuer.example.test",
-                Guid.NewGuid().ToString(), tenant, Guid.NewGuid().ToString(), app, "Alex Example",
-                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+                Guid.NewGuid().ToString(), Guid.NewGuid().ToString(), Guid.NewGuid().ToString(),
+                Guid.NewGuid().ToString(), person, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow), []);
         }
-        // Same name outside either boundary must never make a scoped match ambiguous.
-        await users.UpsertLoginAsync(known! with { Id = Guid.NewGuid(), Subject = Guid.NewGuid().ToString(), TenantId = Guid.NewGuid().ToString() });
-        await users.UpsertLoginAsync(known! with { Id = Guid.NewGuid(), Subject = Guid.NewGuid().ToString(), ClientId = Guid.NewGuid().ToString() });
         var id = await SeedIssueAsync(client, group, group, "1");
         var issues = services.ServiceProvider.GetRequiredService<IIssueStore>();
         var issue = (await issues.GetAsync(IssueId.From(id)))!;
         var originalVersion = issue.Version;
-        issue.AssignKnownUser(known, DateTimeOffset.UtcNow);
+        // As an earlier import would have left it, so this import may still change it.
+        issue.SyncAssignment(known, null, DateTimeOffset.UtcNow);
         Assert.True(await issues.SaveAsync(issue, originalVersion));
 
         async Task<(System.Text.Json.JsonElement Issue, System.Text.Json.JsonElement Report)> RunAsync()
         {
             using var upload = Upload(group, Row(group, "1", "Completed", "notes preserved")
                 .Replace("a@b.gov.uk", name, StringComparison.Ordinal));
-            if (scoped)
-            {
-                upload.Add(new StringContent(tenant), "tenantId");
-                upload.Add(new StringContent(app), "clientId");
-            }
             var response = await client.PostAsync("/v1/imports", upload);
             Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
             var jobId = (await response.ReadJsonAsync()).GetProperty("id").GetGuid();
@@ -91,7 +84,7 @@ public class ImportEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         }
 
         var first = await RunAsync();
-        var assigned = scoped && sameNameUsers == 1 && !string.IsNullOrWhiteSpace(name) && warning is null;
+        var assigned = sameNameUsers == 1 && !string.IsNullOrWhiteSpace(name) && warning is null;
         Assert.Equal(assigned ? known!.Id : (Guid?)null,
             first.Issue.GetProperty("assignedUserId").ValueKind == System.Text.Json.JsonValueKind.Null
                 ? null : first.Issue.GetProperty("assignedUserId").GetGuid());
@@ -132,7 +125,7 @@ public class ImportEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         using var scope = factory.Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<IUserStore>();
         var user = await users.UpsertLoginAsync(new KnownUser(Guid.NewGuid(), "issuer", group,
-            "tenant", "object", "client", "Example Person", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+            "tenant", Guid.NewGuid().ToString(), "client", "Example Person", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow), []);
         var store = scope.ServiceProvider.GetRequiredService<IIssueStore>();
         var issue = (await store.GetAsync(IssueId.From(id)))!;
         var version = issue.Version;
@@ -155,7 +148,7 @@ public class ImportEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         using var scope = factory.Services.CreateScope();
         var users = scope.ServiceProvider.GetRequiredService<IUserStore>();
         var known = await users.UpsertLoginAsync(new KnownUser(Guid.NewGuid(), "issuer", group, "tenant",
-            "object", "client", "Example Person", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
+            Guid.NewGuid().ToString(), "client", "Example Person", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow), []);
         var store = scope.ServiceProvider.GetRequiredService<IIssueStore>();
         var issue = (await store.GetAsync(IssueId.From(id)))!;
         var version = issue.Version;

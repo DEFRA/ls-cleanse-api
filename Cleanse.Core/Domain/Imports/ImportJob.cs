@@ -275,7 +275,7 @@ public static class ImportRejectionReasons
 {
     public const string IssueNotFound = "issue_not_found";
     public const string InvalidRow = "invalid_row";
+    public const string SuspectDate = "suspect_date";
     public const string AssigneeUnmatched = "assignee_unmatched";
     public const string AssigneeAmbiguous = "assignee_ambiguous";
-    public const string AssigneeScopeMissing = "assignee_scope_missing";
 }

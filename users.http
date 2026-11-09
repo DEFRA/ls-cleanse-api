@@ -5,7 +5,18 @@
 @clientId = 22222222-2222-4222-8222-222222222222
 @issueId = rule:example
 
+### Add people before they sign in. Names come from the address; known addresses are not duplicated.
+# @name registered
+POST {{baseUrl}}/v1/users
+x-cleanse-api-key: {{apiKey}}
+Content-Type: application/json
+
+{
+  "emails": ["alex.example@example.test", "Sam.Example2@example.test"]
+}
+
 ### Attest a validated login from the trusted frontend server, never from browser form input.
+# A first sign-in whose email or preferredUsername matches an added address claims that user.
 # @name login
 POST {{baseUrl}}/v1/users/logins
 x-cleanse-api-key: {{apiKey}}
@@ -17,15 +28,17 @@ Content-Type: application/json
   "tenantId": "{{tenantId}}",
   "objectId": "33333333-3333-4333-8333-333333333333",
   "clientId": "{{clientId}}",
-  "fullName": "Alex Example"
+  "fullName": "Alex Example",
+  "email": "alex.example@example.test",
+  "preferredUsername": "alex.example@example.test"
 }
 
-### Directory page. The response has items, totalCount, pageNumber, pageSize and totalPages.
-GET {{baseUrl}}/v1/users?tenantId={{tenantId}}&clientId={{clientId}}&pageNumber=1&pageSize=50
+### Directory page: everyone, signed in or not, ordered by name.
+GET {{baseUrl}}/v1/users?pageNumber=1&pageSize=50
 x-cleanse-api-key: {{apiKey}}
 
-### Invalid scope (400).
-GET {{baseUrl}}/v1/users?tenantId={{tenantId}}
+### Invalid paging (400).
+GET {{baseUrl}}/v1/users?pageSize=501
 x-cleanse-api-key: {{apiKey}}
 
 ### Fetch the current issue version before assignment; replace issueId with an existing issue.
@@ -33,24 +46,22 @@ x-cleanse-api-key: {{apiKey}}
 GET {{baseUrl}}/v1/issues/{{issueId}}
 x-cleanse-api-key: {{apiKey}}
 
-### Stable assignment; unknown or wrong-scope users return 400, stale version returns 409.
+### Stable assignment, to someone who may not have signed in yet. From now on SPOL imports leave it alone.
 PUT {{baseUrl}}/v1/issues/{{issueId}}/assignee
 x-cleanse-api-key: {{apiKey}}
 Content-Type: application/json
 
 {
-  "userId": "{{login.response.body.$.id}}",
-  "tenantId": "{{tenantId}}",
-  "clientId": "{{clientId}}",
+  "userId": "{{registered.response.body.$.created[1].id}}",
   "expectedVersion": {{issue.response.body.$.version}}
 }
 
-### Explicit stable-user unassignment. Refetch the issue to supply expectedVersion when desired.
+### Explicit unassignment. Refetch the issue to supply expectedVersion when desired.
 PUT {{baseUrl}}/v1/issues/{{issueId}}/assignee
 x-cleanse-api-key: {{apiKey}}
 Content-Type: application/json
 
-{"userId":null,"tenantId":"{{tenantId}}","clientId":"{{clientId}}"}
+{"userId":null}
 
 ### Compatible legacy assignment.
 PUT {{baseUrl}}/v1/issues/{{issueId}}/assignee
@@ -71,7 +82,7 @@ x-cleanse-api-key: {{apiKey}}
 GET {{baseUrl}}/v1/issues?assignedUserId={{login.response.body.$.id}}&unassigned=true
 x-cleanse-api-key: {{apiKey}}
 
-### Scoped import; omit BOTH tenantId/clientId fields to preserve legacy-only assignment.
+### Import. Assigned to matches by email first, then by unique full name; an unknown email becomes a user.
 POST {{baseUrl}}/v1/imports
 x-cleanse-api-key: {{apiKey}}
 Content-Type: multipart/form-data; boundary=example-boundary
@@ -81,17 +92,10 @@ Content-Disposition: form-data; name="groupId"
 
 cts-sam
 --example-boundary
-Content-Disposition: form-data; name="tenantId"
-
-{{tenantId}}
---example-boundary
-Content-Disposition: form-data; name="clientId"
-
-{{clientId}}
---example-boundary
 Content-Disposition: form-data; name="file"; filename="example.csv"
 Content-Type: text/csv
 
 CPH,Rule No,Status,Notes,Priority,Date Received,Assigned to
-01/001/0001,2,New,,Low,,Alex Example
+01/001/0001,2,New,,Low,,alex.example@example.test
+01/001/0002,2,New,,Low,,Alex Example
 --example-boundary--

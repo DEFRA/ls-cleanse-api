@@ -25,6 +25,8 @@ internal sealed class IssueRow
 
     public string? AssignedUserFullName { get; set; }
 
+    public DateTimeOffset? AssignmentDetachedAtUtc { get; set; }
+
     public string? Notes { get; set; }
 
     public string? ExternalNotes { get; set; }

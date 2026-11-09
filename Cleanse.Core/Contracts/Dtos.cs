@@ -24,7 +24,8 @@ public sealed record IssueDto(
     DateTimeOffset? DeactivatedAtUtc,
     int Version,
     Guid? AssignedUserId = null,
-    string? AssignedUserFullName = null);
+    string? AssignedUserFullName = null,
+    DateTimeOffset? AssignmentDetachedAtUtc = null);
 
 /// <summary>
 /// Read model for a run. Progress, elapsed time and the projected completion are derived at

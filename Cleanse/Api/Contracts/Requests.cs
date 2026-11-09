@@ -22,10 +22,6 @@ public sealed record AssignIssueRequest(string? AssignTo, int? ExpectedVersion)
         }
     }
 
-    public string? TenantId { get; init; }
-
-    public string? ClientId { get; init; }
-
     [JsonIgnore]
     public bool HasUserId { get; private init; }
 }

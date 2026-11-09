@@ -2,6 +2,7 @@ using Cleanse.Core.Abstractions;
 using Cleanse.Core.Contracts;
 using Cleanse.Core.Domain;
 using Cleanse.Core.Domain.Imports;
+using Cleanse.Core.Users;
 
 namespace Cleanse.Core.Commands.Imports;
 
@@ -24,6 +25,10 @@ internal sealed class ApplyImportBatchCommandHandler(
     : ICommandHandler<ApplyImportBatchCommand, ImportBatchResult>
 {
     private const string Source = "spol";
+
+    // Excel exports carry non-breaking and doubled spaces that a typed name would not.
+    private static string NameKey(string? name) =>
+        string.Join(' ', (name ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     public async Task<Result<ImportBatchResult>> HandleAsync(
         ApplyImportBatchCommand command,
@@ -58,23 +63,43 @@ internal sealed class ApplyImportBatchCommandHandler(
         var auditEntries = new List<AuditEntry>();
         var historyEntries = new List<IssueHistoryEntry>();
         var rejections = new List<ImportJobRejection>();
-        var directory = new List<KnownUser>();
-        if (job.TenantId is not null && job.ClientId is not null)
+        var directory = await LoadDirectoryAsync(cancellationToken);
+        var byEmail = directory.Where(user => user.Email is not null)
+            .ToDictionary(user => user.Email!, StringComparer.Ordinal);
+        var byName = directory.GroupBy(user => NameKey(user.FullName), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+
+        // An address nobody has yet becomes a user, so the issue can be theirs before they sign in.
+        var newcomers = rows
+            .Where(row => row.HasAssignee &&
+                          existing.TryGetValue(row.IssueId.Value, out var issue) &&
+                          string.Equals(issue.GroupId, job.GroupId, StringComparison.Ordinal) &&
+                          issue.AssignmentDetachedAtUtc is null)
+            .Select(row => (Typed: row.AssignedTo?.Trim(),
+                Email: EmailAddress.TryNormalise(row.AssignedTo, out var email) ? email : null))
+            .Where(entry => entry.Email is not null && !byEmail.ContainsKey(entry.Email))
+            .GroupBy(entry => entry.Email!, StringComparer.Ordinal)
+            .Select(group => KnownUser.Unclaimed(group.Key, UserNames.FromEmail(group.First().Typed!)))
+            .ToList();
+
+        if (newcomers.Count > 0)
         {
-            for (var pageNumber = 1; ; pageNumber++)
+            foreach (var registration in await users.RegisterAsync(newcomers, cancellationToken))
             {
-                var page = await users.SearchAsync(
-                    job.TenantId, job.ClientId, new PageRequest(pageNumber, PageRequest.MaxPageSize), cancellationToken);
-                directory.AddRange(page.Items.Where(user => !string.IsNullOrWhiteSpace(user.FullName)));
-                if ((long)pageNumber * PageRequest.MaxPageSize >= page.TotalCount)
+                byEmail[registration.User.Email!] = registration.User;
+                var key = NameKey(registration.User.FullName);
+                if (!byName.TryGetValue(key, out var named))
                 {
-                    break;
+                    byName[key] = named = [];
+                }
+
+                if (!named.Exists(user => user.Id == registration.User.Id))
+                {
+                    named.Add(registration.User);
                 }
             }
         }
 
-        var byName = directory.GroupBy(user => user.FullName.Trim(), StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.ToArray(), StringComparer.OrdinalIgnoreCase);
         var matched = 0;
 
         foreach (var row in rows)
@@ -99,27 +124,43 @@ internal sealed class ApplyImportBatchCommandHandler(
 
             matched++;
             var expectedVersion = issue.Version;
-            if (row.HasAssignee)
+            if (row.HasAssignee && issue.AssignmentDetachedAtUtc is null)
             {
-                var name = string.IsNullOrWhiteSpace(row.AssignedTo) ? null : row.AssignedTo.Trim();
-                byName.TryGetValue(name ?? string.Empty, out var candidates);
-                var assignment = candidates is { Length: 1 }
-                    ? issue.AssignKnownUser(candidates[0], now)
-                    : issue.AssignTo(name, now);
+                var assignee = string.IsNullOrWhiteSpace(row.AssignedTo) ? null : row.AssignedTo.Trim();
+                KnownUser? user = null;
+                string? warning = null;
+                if (EmailAddress.TryNormalise(assignee, out var email))
+                {
+                    if (!byEmail.TryGetValue(email, out user))
+                    {
+                        warning = ImportRejectionReasons.AssigneeUnmatched;
+                    }
+                }
+                else if (assignee is not null)
+                {
+                    byName.TryGetValue(NameKey(assignee), out var candidates);
+                    if (candidates is { Count: 1 })
+                    {
+                        user = candidates[0];
+                    }
+                    else
+                    {
+                        warning = candidates is { Count: > 1 }
+                            ? ImportRejectionReasons.AssigneeAmbiguous
+                            : ImportRejectionReasons.AssigneeUnmatched;
+                    }
+                }
+
+                var assignment = issue.SyncAssignment(user, assignee, now);
                 if (assignment.IsMaterial)
                 {
                     auditEntries.Add(AuditEntry.ForIssue(issue.Id, assignment, command.Actor, now, job.Id.ToString()));
                 }
 
-                if (name is not null && candidates is not { Length: 1 })
+                if (warning is not null)
                 {
-                    var reason = job.TenantId is null
-                        ? ImportRejectionReasons.AssigneeScopeMissing
-                        : candidates is { Length: > 1 }
-                            ? ImportRejectionReasons.AssigneeAmbiguous
-                            : ImportRejectionReasons.AssigneeUnmatched;
                     rejections.Add(new ImportJobRejection(job.Id, row.RowNumber, row.IssueId.Value,
-                        reason, "Assignment warning: legacy assignee retained; no unique scoped known user was selected."));
+                        warning, "Assignment warning: kept as text, because no single known user has that name."));
                 }
             }
 
@@ -179,5 +220,19 @@ internal sealed class ApplyImportBatchCommandHandler(
         await imports.SaveAsync(job, cancellationToken);
 
         return new ImportBatchResult(rows.Count, matched, unmatched, historyEntries.Count);
+    }
+
+    private async Task<List<KnownUser>> LoadDirectoryAsync(CancellationToken cancellationToken)
+    {
+        var directory = new List<KnownUser>();
+        for (var pageNumber = 1; ; pageNumber++)
+        {
+            var page = await users.SearchAsync(new PageRequest(pageNumber, PageRequest.MaxPageSize), cancellationToken);
+            directory.AddRange(page.Items.Where(user => !string.IsNullOrWhiteSpace(user.FullName)));
+            if ((long)pageNumber * PageRequest.MaxPageSize >= page.TotalCount)
+            {
+                return directory;
+            }
+        }
     }
 }

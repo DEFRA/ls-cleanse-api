@@ -75,4 +75,5 @@ public sealed record IssueSnapshot(
     DateTimeOffset? DeactivatedAtUtc,
     int Version,
     Guid? AssignedUserId = null,
-    string? AssignedUserFullName = null);
+    string? AssignedUserFullName = null,
+    DateTimeOffset? AssignmentDetachedAtUtc = null);

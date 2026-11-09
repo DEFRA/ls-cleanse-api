@@ -34,11 +34,26 @@ public sealed class SpolCsvReader
         ("Letter/email sent", HistoryActionType.LetterSent)
     ];
 
+    /// <summary>What "Export CSV with schema" puts on the line before the header.</summary>
+    private const string SchemaLinePrefix = "ListSchema=";
+
+    private static readonly string[] UkDateFormats =
+        ["d/M/yyyy", "d/M/yyyy H:mm", "d/M/yyyy H:mm:ss"];
+
+    /// <summary>The list's regional time zone, which SharePoint shows its dates in.</summary>
+    internal static readonly TimeZoneInfo UkTime =
+        TimeZoneInfo.TryFindSystemTimeZoneById("Europe/London", out var london)
+            ? london
+            : TimeZoneInfo.FindSystemTimeZoneById("GMT Standard Time");
+
+    internal static string UkDay(DateTimeOffset value) =>
+        TimeZoneInfo.ConvertTime(value, UkTime).ToString("dd/MM/yyyy", CultureInfo.InvariantCulture);
+
     public static bool TryValidateHeader(Stream content, out string? error)
     {
         ArgumentNullException.ThrowIfNull(content);
 
-        using var reader = new StreamReader(content, leaveOpen: true);
+        using var reader = OpenText(content, leaveOpen: true, out _);
         using var csv = new CsvReader(reader, Configuration);
 
         if (!csv.Read() || !csv.ReadHeader())
@@ -67,18 +82,37 @@ public sealed class SpolCsvReader
         ArgumentNullException.ThrowIfNull(content);
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
 
-        using var reader = new StreamReader(content);
+        using var reader = OpenText(content, leaveOpen: false, out var skippedLines);
         using var csv = new CsvReader(reader, Configuration);
 
         csv.Read();
         csv.ReadHeader();
 
-        long rowNumber = 1;
+        // Numbered as a spreadsheet shows the file, so the schema line counts as row 1.
+        long rowNumber = 1 + skippedLines;
         while (csv.Read())
         {
             rowNumber++;
             yield return ReadRow(csv, groupId, rowNumber);
         }
+    }
+
+    /// <summary>
+    /// Drops the schema line as text rather than as a record: it is JSON full of quotes, which a
+    /// CSV parser could read straight past the end of the line, swallowing the header.
+    /// </summary>
+    private static TextReader OpenText(Stream content, bool leaveOpen, out int skippedLines)
+    {
+        var reader = new StreamReader(content, leaveOpen: leaveOpen);
+        var first = reader.ReadLine();
+        if (first is not null && first.StartsWith(SchemaLinePrefix, StringComparison.Ordinal))
+        {
+            skippedLines = 1;
+            return reader;
+        }
+
+        skippedLines = 0;
+        return first is null ? reader : new ReplayingReader(first + "\n", reader);
     }
 
     private static SpolRow ReadRow(IReaderRow csv, string groupId, long rowNumber)
@@ -121,9 +155,23 @@ public sealed class SpolCsvReader
 
     private static bool TryDate(string? value, out DateTimeOffset result)
     {
+        result = default;
         if (string.IsNullOrWhiteSpace(value))
         {
-            result = default;
+            return false;
+        }
+
+        // A UK date is a day in UK time: the instant the ISO export carries for the same cell, so
+        // both exports produce the same timestamps and therefore the same history ids.
+        if (DateTime.TryParseExact(value, UkDateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var local))
+        {
+            result = new DateTimeOffset(local, UkTime.GetUtcOffset(local)).ToUniversalTime();
+            return true;
+        }
+
+        // A slashed date that is not UK-shaped must fail: the invariant parser would read it as US.
+        if (value.Contains('/', StringComparison.Ordinal))
+        {
             return false;
         }
 
@@ -132,6 +180,39 @@ public sealed class SpolCsvReader
             CultureInfo.InvariantCulture,
             DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
             out result);
+    }
+
+    /// <summary>Replays a line that has already been read, then hands over to the rest.</summary>
+    private sealed class ReplayingReader(string replay, TextReader rest) : TextReader
+    {
+        private int _position;
+
+        public override int Peek() => _position < replay.Length ? replay[_position] : rest.Peek();
+
+        public override int Read() => _position < replay.Length ? replay[_position++] : rest.Read();
+
+        public override int Read(char[] buffer, int index, int count)
+        {
+            if (_position >= replay.Length)
+            {
+                return rest.Read(buffer, index, count);
+            }
+
+            var copied = Math.Min(count, replay.Length - _position);
+            replay.CopyTo(_position, buffer, index, copied);
+            _position += copied;
+            return copied;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                rest.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
     }
 }
 

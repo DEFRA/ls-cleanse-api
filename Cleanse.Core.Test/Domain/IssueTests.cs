@@ -188,6 +188,39 @@ public class IssueTests
     }
 
     [Fact]
+    public void A_change_in_Cleanse_detaches_the_assignment_from_syncs_and_audits_when()
+    {
+        var issue = TestData.NewIssue("12/345/6789");
+        Assert.True(issue.SyncAssignment(null, "From Spol", Night1).IsMaterial);
+        Assert.Null(issue.AssignmentDetachedAtUtc);
+
+        var change = issue.AssignTo("Chosen In Cleanse", Night2);
+
+        Assert.Equal(Night2, issue.AssignmentDetachedAtUtc);
+        Assert.Contains(change.Changes, c => c.Field == nameof(Issue.AssignmentDetachedAtUtc));
+        var version = issue.Version;
+        Assert.False(issue.SyncAssignment(null, "Spol Again", Night2.AddDays(1)).IsMaterial);
+        Assert.Equal("Chosen In Cleanse", issue.AssignedTo);
+        Assert.Equal(version, issue.Version);
+    }
+
+    [Fact]
+    public void Unassigning_in_Cleanse_detaches_too_but_an_unchanged_save_does_not()
+    {
+        var issue = TestData.NewIssue("12/345/6789");
+        Assert.False(issue.AssignKnownUser(null, Night1).IsMaterial);
+        Assert.Null(issue.AssignmentDetachedAtUtc);
+
+        issue.SyncAssignment(null, "From Spol", Night1);
+        issue.AssignKnownUser(null, Night2);
+
+        Assert.Null(issue.AssignedTo);
+        Assert.Equal(Night2, issue.AssignmentDetachedAtUtc);
+        issue.AssignTo("Later", Night2.AddDays(1));
+        Assert.Equal(Night2, issue.AssignmentDetachedAtUtc);
+    }
+
+    [Fact]
     public void Suppress_rejects_an_expiry_in_the_past()
     {
         var issue = TestData.NewIssue("12/345/6789");

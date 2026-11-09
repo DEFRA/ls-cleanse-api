@@ -25,6 +25,7 @@ internal static class Db
         public const string AssignedTo = "assigned_to";
         public const string AssignedUserId = "assigned_user_id";
         public const string AssignedUserFullName = "assigned_user_full_name";
+        public const string AssignmentDetachedAtUtc = "assignment_detached_at_utc";
         public const string Notes = "notes";
         public const string ExternalNotes = "external_notes";
         public const string Priority = "priority";
@@ -43,7 +44,7 @@ internal static class Db
             Id, GroupId, RuleId, RunId, Status, WorkflowStatus, AssignedTo, Notes,
             ExternalNotes, Priority, ExternalReceivedAtUtc, SuppressionExpiresAtUtc,
             Context, CreatedAtUtc, UpdatedAtUtc, ActivatedAtUtc, DeactivatedAtUtc, Version,
-            AssignedUserId, AssignedUserFullName
+            AssignedUserId, AssignedUserFullName, AssignmentDetachedAtUtc
         ];
 
         public static readonly string AllColumns = string.Join(", ", All);

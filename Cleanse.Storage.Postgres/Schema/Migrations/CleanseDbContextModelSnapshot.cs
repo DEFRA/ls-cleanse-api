@@ -354,6 +354,10 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("assigned_user_id");
 
+                    b.Property<DateTimeOffset?>("AssignmentDetachedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("assignment_detached_at_utc");
+
                     b.Property<string>("Context")
                         .IsRequired()
                         .HasColumnType("jsonb")
@@ -570,12 +574,16 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .HasColumnName("id");
 
                     b.Property<string>("ClientId")
-                        .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("client_id");
 
-                    b.Property<DateTimeOffset>("FirstLoggedInAtUtc")
+                    b.Property<string>("Email")
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("email");
+
+                    b.Property<DateTimeOffset?>("FirstLoggedInAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("first_logged_in_at_utc");
 
@@ -586,41 +594,41 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .HasColumnName("full_name");
 
                     b.Property<string>("Issuer")
-                        .IsRequired()
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)")
                         .HasColumnName("issuer");
 
-                    b.Property<DateTimeOffset>("LastLoggedInAtUtc")
+                    b.Property<DateTimeOffset?>("LastLoggedInAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_logged_in_at_utc");
 
                     b.Property<string>("ObjectId")
-                        .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("object_id");
 
                     b.Property<string>("Subject")
-                        .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
                         .HasColumnName("subject");
 
                     b.Property<string>("TenantId")
-                        .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("tenant_id");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Email")
+                        .IsUnique()
+                        .HasDatabaseName("ux_users_email");
+
+                    b.HasIndex("TenantId", "ObjectId")
+                        .HasDatabaseName("ix_users_object");
+
                     b.HasIndex("Issuer", "ClientId", "Subject")
                         .IsUnique()
                         .HasDatabaseName("ux_users_identity");
-
-                    b.HasIndex("TenantId", "ClientId", "Id")
-                        .HasDatabaseName("ix_users_scope");
 
                     b.ToTable("users", (string)null);
                 });
