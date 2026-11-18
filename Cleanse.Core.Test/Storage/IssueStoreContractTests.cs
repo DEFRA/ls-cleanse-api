@@ -378,6 +378,60 @@ public abstract class IssueStoreContractTests
     }
 
     [Fact]
+    public async Task Grouped_search_pages_groups_newest_first_and_keeps_each_group_whole()
+    {
+        var aOld = TestData.NewIssue("A", at: Night1);
+        var aNew = TestData.NewIssue("A", ruleId: TestData.Rule5, at: Night2);
+        var b = TestData.NewIssue("B", at: Night1.AddHours(1));
+        var c = TestData.NewIssue("C", at: Night1);
+        var store = await SeedAsync(aOld, aNew, b, c);
+
+        var first = await store.SearchGroupedAsync(new IssueFilter { Page = new PageRequest(1, 2) }, "cph");
+
+        Assert.Equal(3, first.TotalCount);
+        Assert.Equal(["A", "B"], first.Items.Select(g => g.Key));
+        Assert.Equal(2, first.Items[0].IssueCount);
+        Assert.Equal(Night2, first.Items[0].LatestUpdatedAtUtc);
+        Assert.Equal([aNew.Id.Value, aOld.Id.Value], first.Items[0].Issues.Select(i => i.Id.Value));
+        Assert.Equal(b.Id.Value, Assert.Single(first.Items[1].Issues).Id.Value);
+
+        var second = await store.SearchGroupedAsync(new IssueFilter { Page = new PageRequest(2, 2) }, "cph");
+
+        var last = Assert.Single(second.Items);
+        Assert.Equal("C", last.Key);
+        Assert.Equal(c.Id.Value, Assert.Single(last.Issues).Id.Value);
+    }
+
+    [Fact]
+    public async Task Grouped_search_applies_the_filter_and_gathers_keyless_issues_under_the_empty_key()
+    {
+        var kept = TestData.NewIssue("A");
+        var filteredOut = TestData.NewIssue("A", ruleId: TestData.Rule5);
+        var keyless = Issue.FromDetection(
+            new IssueDetection(TestData.Key("x"), TestData.Rule2, new Dictionary<string, string> { ["keeper"] = "J Smith" }),
+            TestData.Group, "run-1", Night1);
+        var store = await SeedAsync(kept, filteredOut, keyless);
+
+        var page = await store.SearchGroupedAsync(new IssueFilter { RuleId = TestData.Rule2 }, "cph");
+
+        Assert.Equal(2, page.TotalCount);
+        Assert.Equal(["", "A"], page.Items.Select(g => g.Key));
+        Assert.Equal(keyless.Id.Value, Assert.Single(page.Items[0].Issues).Id.Value);
+        Assert.Equal(kept.Id.Value, Assert.Single(page.Items[1].Issues).Id.Value);
+    }
+
+    [Fact]
+    public async Task Grouped_search_reports_no_groups_when_nothing_matches()
+    {
+        var store = await SeedAsync(TestData.NewIssue("A"));
+
+        var page = await store.SearchGroupedAsync(new IssueFilter { GroupId = "elsewhere" }, "cph");
+
+        Assert.Equal(0, page.TotalCount);
+        Assert.Empty(page.Items);
+    }
+
+    [Fact]
     public async Task Count_by_status_breaks_down_both_axes_for_one_group()
     {
         var active = TestData.NewIssue("a");

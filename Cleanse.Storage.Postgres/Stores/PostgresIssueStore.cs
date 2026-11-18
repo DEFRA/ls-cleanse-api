@@ -302,6 +302,90 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
         return new PagedResult<Issue>(items, filter.Page.PageNumber, filter.Page.PageSize, total);
     }
 
+    public async Task<PagedResult<IssueGrouping>> SearchGroupedAsync(
+        IssueFilter filter,
+        string contextKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        ArgumentException.ThrowIfNullOrEmpty(contextKey);
+
+        var where = IssueFilterSql.Build(filter);
+        var groupKey = $"COALESCE({Db.Issue.Context} ->> @g_key, '')";
+        var connection = await OpenConnectionAsync(cancellationToken);
+
+        await using var countCommand = new NpgsqlCommand(
+            $"SELECT COUNT(DISTINCT {groupKey}) FROM {Db.Issues} {where.Sql}", connection);
+        where.AddParameters(countCommand);
+        countCommand.Parameters.AddWithValue("g_key", contextKey);
+        var total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(cancellationToken));
+
+        if (total == 0)
+        {
+            return PagedResult<IssueGrouping>.Empty(filter.Page);
+        }
+
+        // COLLATE "C" makes the tie-break ordinal, matching the other providers.
+        await using var groupCommand = new NpgsqlCommand($"""
+            SELECT group_key, issue_count, latest_updated_at_utc FROM (
+                SELECT {groupKey} AS group_key,
+                       COUNT(*) AS issue_count,
+                       MAX({Db.Issue.UpdatedAtUtc}) AS latest_updated_at_utc
+                FROM {Db.Issues}
+                {where.Sql}
+                GROUP BY 1
+            ) AS grouped
+            ORDER BY latest_updated_at_utc DESC, group_key COLLATE "C" ASC
+            LIMIT @limit OFFSET @offset
+            """, connection);
+        where.AddParameters(groupCommand);
+        groupCommand.Parameters.AddWithValue("g_key", contextKey);
+        groupCommand.Parameters.AddWithValue("limit", filter.Page.PageSize);
+        groupCommand.Parameters.AddWithValue("offset", filter.Page.Skip);
+
+        var groups = new List<(string Key, int Count, DateTimeOffset Latest)>(filter.Page.PageSize);
+        await using (var reader = await groupCommand.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                groups.Add((reader.GetString(0), Convert.ToInt32(reader.GetInt64(1)), reader.GetFieldValue<DateTimeOffset>(2)));
+            }
+        }
+
+        await using var issueCommand = new NpgsqlCommand($"""
+            SELECT {Db.Issue.AllColumns}, {groupKey} FROM {Db.Issues}
+            {(where.Sql.Length == 0 ? "WHERE" : where.Sql + "\n  AND")} {groupKey} = ANY(@g_keys)
+            ORDER BY {IssueFilterSql.OrderBy(filter)}
+            """, connection);
+        where.AddParameters(issueCommand);
+        issueCommand.Parameters.AddWithValue("g_key", contextKey);
+        issueCommand.Parameters.Add(new NpgsqlParameter("g_keys", NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = groups.Select(g => g.Key).ToArray()
+        });
+
+        var issuesByKey = new Dictionary<string, List<Issue>>(StringComparer.Ordinal);
+        await using (var reader = await issueCommand.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var key = reader.GetString(reader.FieldCount - 1);
+                if (!issuesByKey.TryGetValue(key, out var list))
+                {
+                    issuesByKey[key] = list = [];
+                }
+
+                list.Add(ReadIssue(reader));
+            }
+        }
+
+        return new PagedResult<IssueGrouping>(
+            [.. groups.Select(g => new IssueGrouping(g.Key, g.Count, g.Latest, issuesByKey.GetValueOrDefault(g.Key) ?? []))],
+            filter.Page.PageNumber,
+            filter.Page.PageSize,
+            total);
+    }
+
     public async Task<IReadOnlyList<IssueStatusCount>> CountByStatusAsync(
         string? groupId,
         CancellationToken cancellationToken = default)

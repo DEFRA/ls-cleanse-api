@@ -177,6 +177,33 @@ public sealed class InMemoryIssueStore : IIssueStore
             ordered, filter.Page.PageNumber, filter.Page.PageSize, total));
     }
 
+    public Task<PagedResult<IssueGrouping>> SearchGroupedAsync(
+        IssueFilter filter,
+        string contextKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        ArgumentException.ThrowIfNullOrEmpty(contextKey);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var groups = Sort(_issues.Values.Where(s => Matches(s, filter)).ToList(), filter)
+            .GroupBy(s => s.Context.TryGetValue(contextKey, out var key) ? key : string.Empty, StringComparer.Ordinal)
+            .Select(g => new IssueGrouping(
+                g.Key,
+                g.Count(),
+                g.Max(s => s.UpdatedAtUtc),
+                [.. g.Select(Issue.FromSnapshot)]))
+            .OrderByDescending(g => g.LatestUpdatedAtUtc)
+            .ThenBy(g => g.Key, StringComparer.Ordinal)
+            .ToList();
+
+        return Task.FromResult(new PagedResult<IssueGrouping>(
+            [.. groups.Skip(filter.Page.Skip).Take(filter.Page.PageSize)],
+            filter.Page.PageNumber,
+            filter.Page.PageSize,
+            groups.Count));
+    }
+
     public Task<IReadOnlyList<IssueStatusCount>> CountByStatusAsync(
         string? groupId,
         CancellationToken cancellationToken = default)

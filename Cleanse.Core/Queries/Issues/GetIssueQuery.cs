@@ -37,3 +37,28 @@ internal sealed class SearchIssuesQueryHandler(IIssueStore issues)
         return page.Map(issue => issue.ToDto());
     }
 }
+
+/// <summary>The triage list grouped by CPH. Pages count CPHs, not issues.</summary>
+public sealed record SearchIssuesByCphQuery(IssueFilter Filter) : IQuery<PagedResult<CphIssuesDto>>;
+
+internal sealed class SearchIssuesByCphQueryHandler(IIssueStore issues)
+    : IQueryHandler<SearchIssuesByCphQuery, PagedResult<CphIssuesDto>>
+{
+    /// <summary>The context key the rules engine writes the CPH under.</summary>
+    public const string CphKey = "cph";
+
+    public async Task<Result<PagedResult<CphIssuesDto>>> HandleAsync(
+        SearchIssuesByCphQuery query,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        ArgumentNullException.ThrowIfNull(query.Filter);
+
+        var page = await issues.SearchGroupedAsync(query.Filter, CphKey, cancellationToken);
+        return page.Map(group => new CphIssuesDto(
+            group.Key,
+            group.IssueCount,
+            group.LatestUpdatedAtUtc,
+            [.. group.Issues.Select(issue => issue.ToDto())]));
+    }
+}

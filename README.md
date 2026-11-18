@@ -82,6 +82,7 @@ Two authentication schemes are supported:
 | Method   | Route                             | Purpose                                                                                                        |
 | -------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | `GET`    | `/v1/issues`                      | Search and page. Filter by group, rule, run, status, workflow status, assignee, date ranges and a search term. |
+| `GET`    | `/v1/issues/by-cph`               | The same search, grouped by CPH. Pages count CPHs, newest activity first, each carrying all its issues.        |
 | `GET`    | `/v1/issues/{id}`                 | Fetch one issue.                                                                                               |
 | `PUT`    | `/v1/issues/{id}/assignee`        | Assign, or unassign.                                                                                           |
 | `PUT`    | `/v1/issues/{id}/notes`           | Replace the notes.                                                                                             |

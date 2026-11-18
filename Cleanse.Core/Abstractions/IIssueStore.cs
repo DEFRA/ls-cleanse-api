@@ -42,6 +42,17 @@ public interface IIssueStore
 
     Task<PagedResult<Issue>> SearchAsync(IssueFilter filter, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Groups the issues matching <paramref name="filter"/> by one context value and pages the
+    /// groups, not the issues, so a group is never split across pages. Groups are ordered by
+    /// their most recent update, newest first, then by key. The filter's sort orders the issues
+    /// inside each group.
+    /// </summary>
+    Task<PagedResult<IssueGrouping>> SearchGroupedAsync(
+        IssueFilter filter,
+        string contextKey,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Counts by status and workflow status. Spans every group when no group is named.</summary>
     Task<IReadOnlyList<IssueStatusCount>> CountByStatusAsync(
         string? groupId,

@@ -72,6 +72,7 @@ public static class CleanseCoreServiceCollectionExtensions
 
         AddQuery<GetIssueQuery, IssueDto, GetIssueQueryHandler>(services);
         AddQuery<SearchIssuesQuery, PagedResult<IssueDto>, SearchIssuesQueryHandler>(services);
+        AddQuery<SearchIssuesByCphQuery, PagedResult<CphIssuesDto>, SearchIssuesByCphQueryHandler>(services);
         AddQuery<GetRunQuery, RuleRunDto, GetRunQueryHandler>(services);
         AddQuery<SearchRunsQuery, PagedResult<RuleRunSummaryDto>, SearchRunsQueryHandler>(services);
         AddQuery<GetLatestRunForGroupQuery, RuleRunDto, GetLatestRunForGroupQueryHandler>(services);

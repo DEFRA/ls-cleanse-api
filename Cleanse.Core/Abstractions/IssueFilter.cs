@@ -61,3 +61,13 @@ public sealed record IssueFilter
 }
 
 public sealed record IssueStatusCount(IssueStatus Status, WorkflowStatus WorkflowStatus, int Count);
+
+/// <summary>
+/// The matching issues that share one context value. Issues without the key share the empty
+/// key. <see cref="Issues"/> holds every issue in the grouping, ordered by the filter's sort.
+/// </summary>
+public sealed record IssueGrouping(
+    string Key,
+    int IssueCount,
+    DateTimeOffset LatestUpdatedAtUtc,
+    IReadOnlyList<Issue> Issues);

@@ -183,4 +183,38 @@ public class IssueWorkflowTests(ApiFactory factory) : IClassFixture<ApiFactory>
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
+
+    [Fact]
+    public async Task Issues_can_be_searched_grouped_by_cph()
+    {
+        var client = factory.CreateAuthenticatedClient();
+        var group = $"{Group}-by-cph";
+
+        var start = await client.PostJsonAsync("/v1/runs", new { groupId = group });
+        var runId = (await start.ReadJsonAsync()).GetProperty("runId").GetString()!;
+        await client.PostJsonAsync($"/v1/runs/{runId}/detections", new
+        {
+            detections = new[] { Detection("01/001/0001"), Detection("01/001/0001", "rule5"), Detection("02/002/0002") }
+        });
+
+        var response = await client.GetAsync($"/v1/issues/by-cph?groupId={group}&pageSize=1");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.ReadJsonAsync();
+        Assert.Equal(2, body.GetProperty("totalCount").GetInt32());
+        var first = Assert.Single(body.GetProperty("items").EnumerateArray().ToList());
+        var cph = first.GetProperty("cph").GetString();
+        Assert.Equal(cph == "01/001/0001" ? 2 : 1, first.GetProperty("issueCount").GetInt32());
+        Assert.All(
+            first.GetProperty("issues").EnumerateArray(),
+            issue => Assert.Equal(cph, issue.GetProperty("context").GetProperty("cph").GetString()));
+    }
+
+    [Fact]
+    public async Task Grouped_search_validates_filters_like_the_flat_search()
+    {
+        var response = await factory.CreateAuthenticatedClient().GetAsync("/v1/issues/by-cph?status=banana");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
 }
