@@ -17,6 +17,13 @@ public enum SortDirection
     Descending
 }
 
+/// <summary>What a grouped search orders its groups by.</summary>
+public enum IssueGroupSortField
+{
+    LatestUpdatedAtUtc,
+    IssueCount
+}
+
 /// <summary>
 /// A declarative filter rather than an <c>IQueryable</c>, so that a document store, Postgres
 /// and SQLite can each honour the same query surface without the Core leaking expression trees.
@@ -57,7 +64,22 @@ public sealed record IssueFilter
 
     public SortDirection SortDirection { get; init; } = SortDirection.Descending;
 
+    /// <summary>Orders the groups of a grouped search; ignored by a flat search.</summary>
+    public IssueGroupSortField GroupSortBy { get; init; } = IssueGroupSortField.LatestUpdatedAtUtc;
+
+    public SortDirection GroupSortDirection { get; init; } = SortDirection.Descending;
+
     public PageRequest Page { get; init; } = PageRequest.Default;
 }
 
 public sealed record IssueStatusCount(IssueStatus Status, WorkflowStatus WorkflowStatus, int Count);
+
+/// <summary>
+/// The matching issues that share one context value. Issues without the key share the empty
+/// key. <see cref="Issues"/> holds every issue in the grouping, ordered by the filter's sort.
+/// </summary>
+public sealed record IssueGrouping(
+    string Key,
+    int IssueCount,
+    DateTimeOffset LatestUpdatedAtUtc,
+    IReadOnlyList<Issue> Issues);

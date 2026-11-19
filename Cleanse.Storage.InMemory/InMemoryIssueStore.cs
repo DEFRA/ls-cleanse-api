@@ -177,6 +177,33 @@ public sealed class InMemoryIssueStore : IIssueStore
             ordered, filter.Page.PageNumber, filter.Page.PageSize, total));
     }
 
+    public Task<PagedResult<IssueGrouping>> SearchGroupedAsync(
+        IssueFilter filter,
+        string contextKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        ArgumentException.ThrowIfNullOrEmpty(contextKey);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var groups = Sort(_issues.Values.Where(s => Matches(s, filter)).ToList(), filter)
+            .GroupBy(s => s.Context.TryGetValue(contextKey, out var key) ? key : string.Empty, StringComparer.Ordinal)
+            .Select(g => new IssueGrouping(
+                g.Key,
+                g.Count(),
+                g.Max(s => s.UpdatedAtUtc),
+                [.. g.Select(Issue.FromSnapshot)]))
+            .ToList();
+
+        var ordered = SortGroups(groups, filter);
+
+        return Task.FromResult(new PagedResult<IssueGrouping>(
+            [.. ordered.Skip(filter.Page.Skip).Take(filter.Page.PageSize)],
+            filter.Page.PageNumber,
+            filter.Page.PageSize,
+            groups.Count));
+    }
+
     public Task<IReadOnlyList<IssueStatusCount>> CountByStatusAsync(
         string? groupId,
         CancellationToken cancellationToken = default)
@@ -192,6 +219,25 @@ public sealed class InMemoryIssueStore : IIssueStore
             .ToList();
 
         return Task.FromResult<IReadOnlyList<IssueStatusCount>>(counts);
+    }
+
+    private static IEnumerable<IssueGrouping> SortGroups(List<IssueGrouping> groups, IssueFilter filter)
+    {
+        var descending = filter.GroupSortDirection == SortDirection.Descending;
+
+        // Key is the tie-break on every sort so paging stays stable across calls.
+        return filter.GroupSortBy switch
+        {
+            IssueGroupSortField.IssueCount => (descending
+                    ? groups.OrderByDescending(g => g.IssueCount)
+                    : groups.OrderBy(g => g.IssueCount))
+                .ThenByDescending(g => g.LatestUpdatedAtUtc)
+                .ThenBy(g => g.Key, StringComparer.Ordinal),
+            _ => (descending
+                    ? groups.OrderByDescending(g => g.LatestUpdatedAtUtc)
+                    : groups.OrderBy(g => g.LatestUpdatedAtUtc))
+                .ThenBy(g => g.Key, StringComparer.Ordinal)
+        };
     }
 
     private static IEnumerable<IssueSnapshot> Sort(List<IssueSnapshot> source, IssueFilter filter)

@@ -262,6 +262,92 @@ internal sealed class SqliteIssueStore(CleanseSqliteDatabase database, CleanseSq
         return new PagedResult<Issue>(items, filter.Page.PageNumber, filter.Page.PageSize, total);
     }
 
+    public async Task<PagedResult<IssueGrouping>> SearchGroupedAsync(
+        IssueFilter filter,
+        string contextKey,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(filter);
+        ArgumentException.ThrowIfNullOrEmpty(contextKey);
+
+        var clause = SqliteIssueFilter.Build(filter);
+        const string groupKey =
+            "COALESCE((SELECT ctx.value FROM json_each(issues.context) AS ctx WHERE ctx.key = $g_key), '')";
+        await using var connection = await database.OpenAsync(cancellationToken);
+
+        await using var countCommand = connection.CreateCommand();
+        countCommand.CommandText = $"SELECT COUNT(DISTINCT {groupKey}) FROM issues {clause.Sql}";
+        clause.Bind(countCommand);
+        countCommand.Bind("$g_key", contextKey);
+        var total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(cancellationToken));
+
+        if (total == 0)
+        {
+            return PagedResult<IssueGrouping>.Empty(filter.Page);
+        }
+
+        await using var groupCommand = connection.CreateCommand();
+        groupCommand.CommandText = $"""
+            SELECT {groupKey} AS group_key, COUNT(*) AS issue_count, MAX(updated_at_utc) AS latest_updated_at_utc
+            FROM issues
+            {clause.Sql}
+            GROUP BY group_key
+            ORDER BY {SqliteIssueFilter.GroupOrderBy(filter)}
+            LIMIT $limit OFFSET $offset
+            """;
+        clause.Bind(groupCommand);
+        groupCommand.Bind("$g_key", contextKey);
+        groupCommand.Bind("$limit", filter.Page.PageSize);
+        groupCommand.Bind("$offset", filter.Page.Skip);
+
+        var groups = new List<(string Key, int Count, DateTimeOffset Latest)>(filter.Page.PageSize);
+        await using (var reader = await groupCommand.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                groups.Add((reader.GetString(0), reader.GetInt32(1), SqliteMappings.ToTimestamp(reader.GetString(2))));
+            }
+        }
+
+        await using var issueCommand = connection.CreateCommand();
+        var keyNames = new List<string>(groups.Count);
+        for (var i = 0; i < groups.Count; i++)
+        {
+            var name = $"$g_key{i}";
+            keyNames.Add(name);
+            issueCommand.Bind(name, groups[i].Key);
+        }
+
+        issueCommand.CommandText = $"""
+            SELECT {Columns}, {groupKey} FROM issues
+            {(clause.Sql.Length == 0 ? "WHERE" : clause.Sql + "\n  AND")} {groupKey} IN ({string.Join(", ", keyNames)})
+            ORDER BY {SqliteIssueFilter.OrderBy(filter)}
+            """;
+        clause.Bind(issueCommand);
+        issueCommand.Bind("$g_key", contextKey);
+
+        var issuesByKey = new Dictionary<string, List<Issue>>(StringComparer.Ordinal);
+        await using (var reader = await issueCommand.ExecuteReaderAsync(cancellationToken))
+        {
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var key = reader.GetString(reader.FieldCount - 1);
+                if (!issuesByKey.TryGetValue(key, out var list))
+                {
+                    issuesByKey[key] = list = [];
+                }
+
+                list.Add(Issue.FromSnapshot(SqliteMappings.ReadIssue(reader)));
+            }
+        }
+
+        return new PagedResult<IssueGrouping>(
+            [.. groups.Select(g => new IssueGrouping(g.Key, g.Count, g.Latest, issuesByKey.GetValueOrDefault(g.Key) ?? []))],
+            filter.Page.PageNumber,
+            filter.Page.PageSize,
+            total);
+    }
+
     public async Task<IReadOnlyList<IssueStatusCount>> CountByStatusAsync(
         string? groupId,
         CancellationToken cancellationToken = default)

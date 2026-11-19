@@ -26,6 +26,12 @@ public static class IssueEndpoints
             .WithDescription("Filter by assignedUserId (nonempty GUID), or unassigned=true for issues with neither a stable user nor nonblank legacy assignee. These filters cannot be combined. Omitted filters or unassigned=false include all assignments.")
             .Produces<PagedResult<IssueDto>>()
             .ProducesProblem(StatusCodes.Status400BadRequest);
+        group.MapGet("/by-cph", SearchByCph)
+            .WithName("SearchIssuesByCph")
+            .WithSummary("Search issues, grouped by CPH.")
+            .WithDescription("Takes the same filters as SearchIssues. Pages count CPHs, not issues, so a CPH is never split across pages; totalCount is the number of CPHs. CPHs are ordered by groupSortBy (LatestUpdatedAtUtc, the default, or IssueCount) in groupSortDirection (default Descending), then by CPH; sortBy and sortDirection order the issues within each CPH. Issues with no CPH share the empty CPH.")
+            .Produces<PagedResult<CphIssuesDto>>()
+            .ProducesProblem(StatusCodes.Status400BadRequest);
         group.MapGet("/{id}", GetById)
             .WithName("GetIssue")
             .WithSummary("Fetch a single issue.")
@@ -103,6 +109,20 @@ public static class IssueEndpoints
         }
 
         var result = await dispatcher.QueryAsync(new SearchIssuesQuery(filter), cancellationToken);
+        return result.ToHttpResult();
+    }
+
+    private static async Task<IResult> SearchByCph(
+        [AsParameters] IssueSearchParameters parameters,
+        ICleanseDispatcher dispatcher,
+        CancellationToken cancellationToken)
+    {
+        if (!parameters.TryBuildFilter(out var filter, out var error))
+        {
+            return TypedResults.Problem(title: "Invalid request", detail: error, statusCode: 400);
+        }
+
+        var result = await dispatcher.QueryAsync(new SearchIssuesByCphQuery(filter), cancellationToken);
         return result.ToHttpResult();
     }
 

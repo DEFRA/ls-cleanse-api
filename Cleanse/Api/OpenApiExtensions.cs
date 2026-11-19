@@ -43,6 +43,8 @@ public static class OpenApiExtensions
 
         public static readonly string[] IssueSortField = Enum.GetNames<IssueSortField>();
 
+        public static readonly string[] IssueGroupSortField = Enum.GetNames<IssueGroupSortField>();
+
         public static readonly string[] SortDirection = Enum.GetNames<SortDirection>();
     }
 
@@ -93,7 +95,9 @@ public static class OpenApiExtensions
         ["workflowStatus"] = Vocabularies.WorkflowStatus,
         ["state"] = Vocabularies.RunState,
         ["sortBy"] = Vocabularies.IssueSortField,
-        ["sortDirection"] = Vocabularies.SortDirection
+        ["sortDirection"] = Vocabularies.SortDirection,
+        ["groupSortBy"] = Vocabularies.IssueGroupSortField,
+        ["groupSortDirection"] = Vocabularies.SortDirection
     };
 
     /// <summary>

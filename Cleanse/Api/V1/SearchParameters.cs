@@ -73,7 +73,9 @@ public sealed record IssueSearchParameters(
     [FromQuery(Name = "sortDirection")] string? SortDirection,
     [FromQuery(Name = "pageNumber")] int? PageNumber,
     [FromQuery(Name = "pageSize")] int? PageSize,
-    [FromQuery(Name = "assignedUserId")] string? AssignedUserId = null)
+    [FromQuery(Name = "assignedUserId")] string? AssignedUserId = null,
+    [FromQuery(Name = "groupSortBy")] string? GroupSortBy = null,
+    [FromQuery(Name = "groupSortDirection")] string? GroupSortDirection = null)
 {
     public bool TryBuildFilter(out IssueFilter filter, out string? error)
     {
@@ -142,6 +144,22 @@ public sealed record IssueSearchParameters(
             return false;
         }
 
+        var groupSortBy = IssueGroupSortField.LatestUpdatedAtUtc;
+        if (!string.IsNullOrWhiteSpace(GroupSortBy) &&
+            !Enum.TryParse(GroupSortBy, ignoreCase: true, out groupSortBy))
+        {
+            error = $"'{GroupSortBy}' is not a group sortable field.";
+            return false;
+        }
+
+        var groupSortDirection = Core.Abstractions.SortDirection.Descending;
+        if (!string.IsNullOrWhiteSpace(GroupSortDirection) &&
+            !Enum.TryParse(GroupSortDirection, ignoreCase: true, out groupSortDirection))
+        {
+            error = $"'{GroupSortDirection}' is not a sort direction.";
+            return false;
+        }
+
         filter = new IssueFilter
         {
             GroupId = Blank(GroupId),
@@ -159,6 +177,8 @@ public sealed record IssueSearchParameters(
             UpdatedBeforeUtc = UpdatedBeforeUtc,
             SortBy = sortBy,
             SortDirection = sortDirection,
+            GroupSortBy = groupSortBy,
+            GroupSortDirection = groupSortDirection,
             Page = new PageParameters(PageNumber, PageSize).ToPageRequest()
         };
 

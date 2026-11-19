@@ -27,6 +27,13 @@ public sealed record IssueDto(
     string? AssignedUserFullName = null,
     DateTimeOffset? AssignmentDetachedAtUtc = null);
 
+/// <summary>The matching issues at one CPH. Issues without a CPH share the empty CPH.</summary>
+public sealed record CphIssuesDto(
+    string Cph,
+    int IssueCount,
+    DateTimeOffset LatestUpdatedAtUtc,
+    IReadOnlyList<IssueDto> Issues);
+
 /// <summary>
 /// Read model for a run. Progress, elapsed time and the projected completion are derived at
 /// read time rather than stored, so a running run reports a current answer on every request.
