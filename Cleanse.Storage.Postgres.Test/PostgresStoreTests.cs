@@ -5,6 +5,7 @@ using Cleanse.Core.Test.Support;
 using Cleanse.Storage.Postgres.Schema;
 using Cleanse.Storage.Postgres.Stores;
 using Cleanse.Storage.Postgres.Test.Support;
+using Microsoft.EntityFrameworkCore;
 
 namespace Cleanse.Storage.Postgres.Test;
 
@@ -17,6 +18,24 @@ public sealed class PostgresIssueStoreTests(PostgresFixture fixture)
     protected override IIssueStore CreateStore() =>
         // Threshold low enough that the batch tests exercise COPY rather than INSERT.
         new PostgresIssueStore(_harness.NewContext(), CleansePostgresOptions.ForExistingDataSource(3));
+
+    /// <summary>
+    /// Guards the index the grouped search relies on: it has to exist, and its expression has to be
+    /// the one the grouping SQL uses, or the planner will not pick it.
+    /// </summary>
+    [Fact]
+    public async Task The_cph_group_index_serves_the_grouped_search_expression()
+    {
+        var db = _harness.NewContext();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        await db.Database.ExecuteSqlRawAsync("SET LOCAL enable_seqscan = off");
+
+        var plan = await db.Database.SqlQueryRaw<string>(
+            "EXPLAIN SELECT id FROM issues WHERE group_id = 'g' " +
+            "AND COALESCE(context ->> 'cph', '') = ANY(ARRAY['01/001/0001']) ").ToListAsync();
+
+        Assert.Contains(plan, line => line.Contains("ix_issues_group_cph", StringComparison.Ordinal));
+    }
 
     public ValueTask InitializeAsync() => _harness.InitializeAsync();
 
