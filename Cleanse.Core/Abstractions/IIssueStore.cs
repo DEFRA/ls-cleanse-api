@@ -45,8 +45,8 @@ public interface IIssueStore
     /// <summary>
     /// Groups the issues matching <paramref name="filter"/> by one context value and pages the
     /// groups, not the issues, so a group is never split across pages. Groups are ordered by
-    /// their most recent update, newest first, then by key. The filter's sort orders the issues
-    /// inside each group.
+    /// the filter's group sort (default: most recent update, newest first), then by key. The
+    /// filter's sort orders the issues inside each group.
     /// </summary>
     Task<PagedResult<IssueGrouping>> SearchGroupedAsync(
         IssueFilter filter,

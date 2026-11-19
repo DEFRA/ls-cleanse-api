@@ -193,12 +193,12 @@ public sealed class InMemoryIssueStore : IIssueStore
                 g.Count(),
                 g.Max(s => s.UpdatedAtUtc),
                 [.. g.Select(Issue.FromSnapshot)]))
-            .OrderByDescending(g => g.LatestUpdatedAtUtc)
-            .ThenBy(g => g.Key, StringComparer.Ordinal)
             .ToList();
 
+        var ordered = SortGroups(groups, filter);
+
         return Task.FromResult(new PagedResult<IssueGrouping>(
-            [.. groups.Skip(filter.Page.Skip).Take(filter.Page.PageSize)],
+            [.. ordered.Skip(filter.Page.Skip).Take(filter.Page.PageSize)],
             filter.Page.PageNumber,
             filter.Page.PageSize,
             groups.Count));
@@ -219,6 +219,25 @@ public sealed class InMemoryIssueStore : IIssueStore
             .ToList();
 
         return Task.FromResult<IReadOnlyList<IssueStatusCount>>(counts);
+    }
+
+    private static IEnumerable<IssueGrouping> SortGroups(List<IssueGrouping> groups, IssueFilter filter)
+    {
+        var descending = filter.GroupSortDirection == SortDirection.Descending;
+
+        // Key is the tie-break on every sort so paging stays stable across calls.
+        return filter.GroupSortBy switch
+        {
+            IssueGroupSortField.IssueCount => (descending
+                    ? groups.OrderByDescending(g => g.IssueCount)
+                    : groups.OrderBy(g => g.IssueCount))
+                .ThenByDescending(g => g.LatestUpdatedAtUtc)
+                .ThenBy(g => g.Key, StringComparer.Ordinal),
+            _ => (descending
+                    ? groups.OrderByDescending(g => g.LatestUpdatedAtUtc)
+                    : groups.OrderBy(g => g.LatestUpdatedAtUtc))
+                .ThenBy(g => g.Key, StringComparer.Ordinal)
+        };
     }
 
     private static IEnumerable<IssueSnapshot> Sort(List<IssueSnapshot> source, IssueFilter filter)

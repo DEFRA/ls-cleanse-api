@@ -420,6 +420,37 @@ public abstract class IssueStoreContractTests
         Assert.Equal(kept.Id.Value, Assert.Single(page.Items[1].Issues).Id.Value);
     }
 
+    [Theory]
+    [InlineData(IssueGroupSortField.IssueCount, SortDirection.Descending, "A,B,C")]
+    [InlineData(IssueGroupSortField.IssueCount, SortDirection.Ascending, "C,B,A")]
+    [InlineData(IssueGroupSortField.LatestUpdatedAtUtc, SortDirection.Descending, "C,A,B")]
+    [InlineData(IssueGroupSortField.LatestUpdatedAtUtc, SortDirection.Ascending, "B,A,C")]
+    public async Task Grouped_search_orders_groups_by_the_requested_field_across_pages(
+        IssueGroupSortField sortBy, SortDirection direction, string expected)
+    {
+        var store = await SeedAsync(
+            TestData.NewIssue("A", at: Night1.AddHours(2)),
+            TestData.NewIssue("A", ruleId: TestData.Rule5, at: Night1.AddHours(2)),
+            TestData.NewIssue("A", ruleId: "rule7", at: Night1.AddHours(2)),
+            TestData.NewIssue("B", at: Night1),
+            TestData.NewIssue("B", ruleId: TestData.Rule5, at: Night1),
+            TestData.NewIssue("C", at: Night2));
+
+        var keys = new List<string>();
+        for (var page = 1; page <= 2; page++)
+        {
+            var result = await store.SearchGroupedAsync(new IssueFilter
+            {
+                GroupSortBy = sortBy,
+                GroupSortDirection = direction,
+                Page = new PageRequest(page, 2)
+            }, "cph");
+            keys.AddRange(result.Items.Select(g => g.Key));
+        }
+
+        Assert.Equal(expected, string.Join(',', keys));
+    }
+
     [Fact]
     public async Task Grouped_search_reports_no_groups_when_nothing_matches()
     {

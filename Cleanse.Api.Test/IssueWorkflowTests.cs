@@ -210,11 +210,35 @@ public class IssueWorkflowTests(ApiFactory factory) : IClassFixture<ApiFactory>
             issue => Assert.Equal(cph, issue.GetProperty("context").GetProperty("cph").GetString()));
     }
 
-    [Fact]
-    public async Task Grouped_search_validates_filters_like_the_flat_search()
+    [Theory]
+    [InlineData("status=banana")]
+    [InlineData("groupSortBy=banana")]
+    [InlineData("groupSortDirection=sideways")]
+    public async Task Grouped_search_rejects_invalid_filters_and_sorts(string query)
     {
-        var response = await factory.CreateAuthenticatedClient().GetAsync("/v1/issues/by-cph?status=banana");
+        var response = await factory.CreateAuthenticatedClient().GetAsync($"/v1/issues/by-cph?{query}");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Grouped_search_orders_by_issue_count_ascending_on_request()
+    {
+        var client = factory.CreateAuthenticatedClient();
+        var group = $"{Group}-by-cph-sort";
+
+        var start = await client.PostJsonAsync("/v1/runs", new { groupId = group });
+        var runId = (await start.ReadJsonAsync()).GetProperty("runId").GetString()!;
+        await client.PostJsonAsync($"/v1/runs/{runId}/detections", new
+        {
+            detections = new[] { Detection("03/003/0003"), Detection("03/003/0003", "rule5"), Detection("04/004/0004") }
+        });
+
+        var body = await (await client.GetAsync(
+            $"/v1/issues/by-cph?groupId={group}&groupSortBy=IssueCount&groupSortDirection=Ascending")).ReadJsonAsync();
+
+        Assert.Equal(
+            ["04/004/0004", "03/003/0003"],
+            body.GetProperty("items").EnumerateArray().Select(g => g.GetProperty("cph").GetString()).ToArray());
     }
 }

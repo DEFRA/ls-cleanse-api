@@ -288,11 +288,11 @@ internal sealed class SqliteIssueStore(CleanseSqliteDatabase database, CleanseSq
 
         await using var groupCommand = connection.CreateCommand();
         groupCommand.CommandText = $"""
-            SELECT {groupKey} AS group_key, COUNT(*), MAX(updated_at_utc) AS latest_updated_at_utc
+            SELECT {groupKey} AS group_key, COUNT(*) AS issue_count, MAX(updated_at_utc) AS latest_updated_at_utc
             FROM issues
             {clause.Sql}
             GROUP BY group_key
-            ORDER BY latest_updated_at_utc DESC, group_key ASC
+            ORDER BY {SqliteIssueFilter.GroupOrderBy(filter)}
             LIMIT $limit OFFSET $offset
             """;
         clause.Bind(groupCommand);

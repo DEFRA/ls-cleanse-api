@@ -29,7 +29,7 @@ public static class IssueEndpoints
         group.MapGet("/by-cph", SearchByCph)
             .WithName("SearchIssuesByCph")
             .WithSummary("Search issues, grouped by CPH.")
-            .WithDescription("Takes the same filters as SearchIssues. Pages count CPHs, not issues, so a CPH is never split across pages; totalCount is the number of CPHs. CPHs are ordered by their most recently updated issue, newest first; sortBy and sortDirection order the issues within each CPH. Issues with no CPH share the empty CPH.")
+            .WithDescription("Takes the same filters as SearchIssues. Pages count CPHs, not issues, so a CPH is never split across pages; totalCount is the number of CPHs. CPHs are ordered by groupSortBy (LatestUpdatedAtUtc, the default, or IssueCount) in groupSortDirection (default Descending), then by CPH; sortBy and sortDirection order the issues within each CPH. Issues with no CPH share the empty CPH.")
             .Produces<PagedResult<CphIssuesDto>>()
             .ProducesProblem(StatusCodes.Status400BadRequest);
         group.MapGet("/{id}", GetById)

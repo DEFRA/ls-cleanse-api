@@ -325,7 +325,7 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
             return PagedResult<IssueGrouping>.Empty(filter.Page);
         }
 
-        // COLLATE "C" makes the tie-break ordinal, matching the other providers.
+        // The tie-break is ordinal, matching the other providers.
         await using var groupCommand = new NpgsqlCommand($"""
             SELECT group_key, issue_count, latest_updated_at_utc FROM (
                 SELECT {groupKey} AS group_key,
@@ -335,7 +335,7 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
                 {where.Sql}
                 GROUP BY 1
             ) AS grouped
-            ORDER BY latest_updated_at_utc DESC, group_key COLLATE "C" ASC
+            ORDER BY {IssueFilterSql.GroupOrderBy(filter)}
             LIMIT @limit OFFSET @offset
             """, connection);
         where.AddParameters(groupCommand);

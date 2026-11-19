@@ -152,6 +152,17 @@ internal static class SqliteIssueFilter
         return new Clause(sql, parameters);
     }
 
+    /// <summary>Orders the grouped query, which exposes issue_count and latest_updated_at_utc.</summary>
+    public static string GroupOrderBy(IssueFilter filter)
+    {
+        var direction = filter.GroupSortDirection == SortDirection.Descending ? "DESC" : "ASC";
+        var leading = filter.GroupSortBy == IssueGroupSortField.IssueCount
+            ? $"issue_count {direction}, latest_updated_at_utc DESC"
+            : $"latest_updated_at_utc {direction}";
+
+        return $"{leading}, group_key ASC";
+    }
+
     public static string OrderBy(IssueFilter filter)
     {
         var direction = filter.SortDirection == SortDirection.Descending ? "DESC" : "ASC";
