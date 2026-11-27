@@ -47,10 +47,12 @@ public class IssueWorkflowTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal("active", body.GetProperty("status").GetString());
         Assert.Equal("todo", body.GetProperty("workflowStatus").GetString());
 
-        // A caseworker triages it.
-        var assign = await client.PutJsonAsync($"/v1/issues/{Id("a")}/assignee", new { assignTo = "alice" });
+        // A caseworker takes the holding and triages it.
+        var user = await RegisterAsync(client, "alice.brown");
+        var assign = await client.PutJsonAsync("/v1/holdings/assignee", new { groupId = group, cph = "a", userId = user });
         Assert.Equal(HttpStatusCode.OK, assign.StatusCode);
-        Assert.Equal("alice", (await assign.ReadJsonAsync()).GetProperty("assignedTo").GetString());
+        var assignedTo = (await assign.ReadJsonAsync()).GetProperty("assignedTo").GetString();
+        Assert.StartsWith("Alice Brown", assignedTo, StringComparison.Ordinal);
 
         var resolve = await client.PutJsonAsync(
             $"/v1/issues/{Id("a")}/workflow-status", new { workflowStatus = "resolved" });
@@ -69,7 +71,23 @@ public class IssueWorkflowTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var reDetected = await (await client.GetAsync($"/v1/issues/{Id("a")}")).ReadJsonAsync();
         Assert.Equal("active", reDetected.GetProperty("status").GetString());
         Assert.Equal("resolved", reDetected.GetProperty("workflowStatus").GetString());
-        Assert.Equal("alice", reDetected.GetProperty("assignedTo").GetString());
+        Assert.Equal(assignedTo, reDetected.GetProperty("assignedTo").GetString());
+    }
+
+    /// <summary>Registers someone by email, as an admin would, and returns their user id.</summary>
+    internal static async Task<Guid> RegisterAsync(HttpClient client, string localPart)
+    {
+        var email = $"{localPart}.{Guid.NewGuid():N}@example.test";
+        var registered = await (await client.PostJsonAsync("/v1/users", new { emails = new[] { email } })).ReadJsonAsync();
+        return registered.GetProperty("created")[0].GetProperty("id").GetGuid();
+    }
+
+    /// <summary>Adds an entry to an admin list and returns its id.</summary>
+    internal static async Task<Guid> AddListEntryAsync(HttpClient client, string list, string name)
+    {
+        var response = await client.PostJsonAsync($"/v1/lists/{list}", new { name = $"{name} {Guid.NewGuid():N}" });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.ReadJsonAsync()).GetProperty("id").GetGuid();
     }
 
     [Fact]
@@ -83,15 +101,16 @@ public class IssueWorkflowTests(ApiFactory factory) : IClassFixture<ApiFactory>
         await client.PostJsonAsync(
             $"/v1/runs/{runId}/detections", new { detections = new[] { Detection("actor", "rule9") } });
 
-        await client.PutJsonAsync($"/v1/issues/{Id("actor", "rule9")}/assignee", new { assignTo = "bob" });
+        await client.PutJsonAsync(
+            $"/v1/issues/{Id("actor", "rule9")}/workflow-status", new { workflowStatus = "in-progress" });
 
         var audit = await (await client.GetAsync(
             $"/v1/issues/{Id("actor", "rule9")}/audit")).ReadJsonAsync();
         var entries = audit.GetProperty("items").EnumerateArray().ToList();
-        var assigned = entries.First(e => e.GetProperty("kind").GetString() == "IssueAssigned");
+        var changed = entries.First(e => e.GetProperty("kind").GetString() == "IssueWorkflowStatusChanged");
 
         // Taken from the credential, never from the request body.
-        Assert.Equal("test-client", assigned.GetProperty("actorId").GetString());
+        Assert.Equal("test-client", changed.GetProperty("actorId").GetString());
     }
 
     [Fact]
@@ -114,8 +133,16 @@ public class IssueWorkflowTests(ApiFactory factory) : IClassFixture<ApiFactory>
         await client.PostJsonAsync(
             $"/v1/runs/{runId}/detections", new { detections = new[] { Detection("t", "rule7") } });
 
-        await client.PutJsonAsync(
-            $"/v1/issues/{Id("t", "rule7")}/workflow-status", new { workflowStatus = "ignored" });
+        var reason = await AddListEntryAsync(client, "cant-resolve-reasons", "Duplicate");
+        var withoutReason = await client.PutJsonAsync(
+            $"/v1/issues/{Id("t", "rule7")}/workflow-status", new { workflowStatus = "nonactionable" });
+        Assert.Equal("issue.reason_required", (await withoutReason.ReadJsonAsync()).GetProperty("code").GetString());
+
+        var cantResolve = await client.PutJsonAsync(
+            $"/v1/issues/{Id("t", "rule7")}/workflow-status", new { workflowStatus = "nonactionable", reasonId = reason });
+        Assert.Equal(HttpStatusCode.OK, cantResolve.StatusCode);
+        Assert.Equal(reason, (await cantResolve.ReadJsonAsync()).GetProperty("outcomeReasonId").GetGuid());
+
         var invalid = await client.PutJsonAsync(
             $"/v1/issues/{Id("t", "rule7")}/workflow-status", new { workflowStatus = "resolved" });
 
@@ -123,6 +150,15 @@ public class IssueWorkflowTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(
             "issue.invalid_transition",
             (await invalid.ReadJsonAsync()).GetProperty("code").GetString());
+    }
+
+    [Fact]
+    public async Task Ignored_is_no_longer_a_workflow_status()
+    {
+        var response = await factory.CreateAuthenticatedClient()
+            .PutJsonAsync($"/v1/issues/{Id("x")}/workflow-status", new { workflowStatus = "ignored" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
@@ -140,8 +176,8 @@ public class IssueWorkflowTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var version = original.GetProperty("version").GetInt32();
 
         await client.PutJsonAsync(
-            $"/v1/issues/{Id("c", "rule8")}/assignee",
-            new { assignTo = "first", expectedVersion = version });
+            $"/v1/issues/{Id("c", "rule8")}/workflow-status",
+            new { workflowStatus = "in-progress", expectedVersion = version });
         var stale = await client.PutJsonAsync(
             $"/v1/issues/{Id("c", "rule8")}/notes", new { notes = "second", expectedVersion = version });
 

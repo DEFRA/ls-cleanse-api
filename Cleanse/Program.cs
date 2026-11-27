@@ -174,6 +174,8 @@ static void ConfigureEndpoints(WebApplication app)
     var v1 = app.MapGroup("/v1").RequireAuthorization(CleansePolicies.Default);
 
     v1.MapIssueEndpoints();
+    v1.MapHoldingEndpoints();
+    v1.MapListEndpoints();
     v1.MapUserEndpoints();
     v1.MapRunEndpoints();
     v1.MapRuleEndpoints();

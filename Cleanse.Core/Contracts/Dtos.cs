@@ -3,7 +3,8 @@ using Cleanse.Core.Domain;
 namespace Cleanse.Core.Contracts;
 
 /// <summary>Read model for an issue. Statuses are wire strings, not enums, so the eventual API
-/// contract is stable even if the enum members are reordered.</summary>
+/// contract is stable even if the enum members are reordered. The assignment fields report the
+/// issue's holding's assignee, because issues are no longer assigned one by one.</summary>
 public sealed record IssueDto(
     string Id,
     string GroupId,
@@ -25,14 +26,105 @@ public sealed record IssueDto(
     int Version,
     Guid? AssignedUserId = null,
     string? AssignedUserFullName = null,
-    DateTimeOffset? AssignmentDetachedAtUtc = null);
+    DateTimeOffset? AssignmentDetachedAtUtc = null,
+    Guid? OutcomeReasonId = null,
+    string? OutcomeReason = null);
 
-/// <summary>The matching issues at one CPH. Issues without a CPH share the empty CPH.</summary>
+/// <summary>
+/// The matching issues at one CPH. Issues without a CPH share the empty CPH. The holding fields
+/// are worked out from every issue at the CPH, whatever the filters matched.
+/// </summary>
 public sealed record CphIssuesDto(
     string Cph,
     int IssueCount,
     DateTimeOffset LatestUpdatedAtUtc,
-    IReadOnlyList<IssueDto> Issues);
+    IReadOnlyList<IssueDto> Issues,
+    string? HoldingStatus = null,
+    string? AssignedTo = null,
+    Guid? AssignedUserId = null,
+    DateTimeOffset? SuppressedUntilUtc = null);
+
+/// <summary>A holding's assignment. Version is 0 until something has been recorded against it.</summary>
+public sealed record HoldingDto(
+    string GroupId,
+    string Cph,
+    string? AssignedTo,
+    Guid? AssignedUserId,
+    string? AssignedUserFullName,
+    DateTimeOffset? AssignmentDetachedAtUtc,
+    int Version);
+
+/// <summary>
+/// Everything the holding page shows. <see cref="Status"/> is worked out from <see cref="Issues"/>;
+/// <see cref="Notes"/> and <see cref="History"/> are newest first.
+/// </summary>
+public sealed record HoldingDetailDto(
+    string GroupId,
+    string Cph,
+    string Status,
+    DateTimeOffset? SuppressedUntilUtc,
+    string? AssignedTo,
+    Guid? AssignedUserId,
+    string? AssignedUserFullName,
+    DateTimeOffset? AssignmentDetachedAtUtc,
+    int Version,
+    IReadOnlyList<IssueDto> Issues,
+    IReadOnlyList<HoldingNoteDto> Notes,
+    IReadOnlyList<HoldingEventDto> History);
+
+/// <summary>
+/// A note on a holding. <see cref="Context"/> says what it was written with, if anything.
+/// <see cref="IssueId"/> is set only for a comment made on one issue before notes moved to the holding.
+/// </summary>
+public sealed record HoldingNoteDto(
+    Guid Id,
+    string Text,
+    string? Context,
+    string? IssueId,
+    DateTimeOffset CreatedAtUtc,
+    string CreatedById,
+    string CreatedByDisplayName);
+
+/// <summary>
+/// One entry in a holding's history. <see cref="Kind"/> is <c>actions-recorded</c>,
+/// <c>assignment-changed</c>, <c>status-changed</c> or <c>contact</c> (a SPOL contact date), and
+/// says which of the optional fields apply.
+/// </summary>
+public sealed record HoldingEventDto(
+    string Kind,
+    DateTimeOffset AtUtc,
+    string ActorId,
+    string ActorDisplayName,
+    string? IssueId,
+    string? WorkflowStatus,
+    string? PreviousWorkflowStatus,
+    string? OutcomeReason,
+    DateTimeOffset? SuppressedUntilUtc,
+    string? AssignedTo,
+    IReadOnlyList<string> Actions,
+    string? Detail);
+
+public static class HoldingEventKinds
+{
+    public const string ActionsRecorded = "actions-recorded";
+    public const string AssignmentChanged = "assignment-changed";
+    public const string StatusChanged = "status-changed";
+    public const string Contact = "contact";
+
+    public static readonly IReadOnlyList<string> All = [ActionsRecorded, AssignmentChanged, StatusChanged, Contact];
+}
+
+public sealed record RecordedHoldingActionsDto(Guid BatchId, IReadOnlyList<string> Actions, HoldingNoteDto? Note);
+
+public sealed record HoldingIssuesUpdatedDto(IReadOnlyList<IssueDto> Issues, HoldingNoteDto? Note);
+
+public sealed record CodedValueDto(
+    Guid Id,
+    string List,
+    string Name,
+    bool IsActive,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
 
 /// <summary>
 /// Read model for a run. Progress, elapsed time and the projected completion are derived at
@@ -197,7 +289,10 @@ public sealed record ResetResultDto(
     int AuditEntries,
     int RuleRuns,
     int ImportJobs,
-    int ImportRejections)
+    int ImportRejections,
+    int Holdings = 0,
+    int HoldingNotes = 0,
+    int HoldingActions = 0)
 {
     /// <summary>The <see cref="Scope"/> reported when no group was named.</summary>
     public const string AllGroups = "all";

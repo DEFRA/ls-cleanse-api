@@ -73,6 +73,10 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Sequence"));
 
+                    b.Property<string>("Subject")
+                        .HasColumnType("text")
+                        .HasColumnName("subject");
+
                     b.HasKey("Id");
 
                     b.HasIndex("IssueId", "AtUtc", "Sequence")
@@ -85,7 +89,60 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .HasDatabaseName("ix_audit_entries_run")
                         .HasFilter("run_id IS NOT NULL");
 
+                    b.HasIndex("Subject", "AtUtc", "Sequence")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("ix_audit_entries_subject")
+                        .HasFilter("subject IS NOT NULL");
+
                     b.ToTable("audit_entries", (string)null);
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.CodedValueRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("List")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("list");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("NameKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name_key");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("List", "NameKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_coded_values_list_name");
+
+                    b.ToTable("coded_values", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_coded_values_list", "list IN ('action-types', 'resolved-reasons', 'cant-resolve-reasons')");
+                        });
                 });
 
             modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.DataResetRow", b =>
@@ -122,6 +179,186 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .HasDatabaseName("ix_data_resets_at");
 
                     b.ToTable("data_resets", (string)null);
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.HoldingActionRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ActionTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("action_type_id");
+
+                    b.Property<string>("ActionTypeName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("action_type_name");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
+                    b.Property<string>("Cph")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("cph");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("CreatedByDisplayName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_display_name");
+
+                    b.Property<string>("CreatedById")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<string>("CreatedByKind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_kind");
+
+                    b.Property<string>("GroupId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("group_id");
+
+                    b.Property<long>("Sequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("sequence");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Sequence"));
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ActionTypeId");
+
+                    b.HasIndex("CreatedAtUtc")
+                        .HasDatabaseName("ix_holding_actions_created");
+
+                    b.HasIndex("GroupId", "Cph", "CreatedAtUtc", "Sequence")
+                        .IsDescending(false, false, true, true)
+                        .HasDatabaseName("ix_holding_actions_holding");
+
+                    b.ToTable("holding_actions", (string)null);
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.HoldingNoteRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Context")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("context");
+
+                    b.Property<string>("Cph")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("cph");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("CreatedByDisplayName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_display_name");
+
+                    b.Property<string>("CreatedById")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<string>("CreatedByKind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_kind");
+
+                    b.Property<string>("GroupId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("group_id");
+
+                    b.Property<long>("Sequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("sequence");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<long>("Sequence"));
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GroupId", "Cph", "CreatedAtUtc", "Sequence")
+                        .IsDescending(false, false, true, true)
+                        .HasDatabaseName("ix_holding_notes_holding");
+
+                    b.ToTable("holding_notes", (string)null);
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.HoldingRow", b =>
+                {
+                    b.Property<string>("GroupId")
+                        .HasColumnType("text")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("Cph")
+                        .HasColumnType("text")
+                        .HasColumnName("cph");
+
+                    b.Property<string>("AssignedTo")
+                        .HasColumnType("text")
+                        .HasColumnName("assigned_to");
+
+                    b.Property<string>("AssignedUserFullName")
+                        .HasColumnType("text")
+                        .HasColumnName("assigned_user_full_name");
+
+                    b.Property<Guid?>("AssignedUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assigned_user_id");
+
+                    b.Property<DateTimeOffset?>("AssignmentDetachedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("assignment_detached_at_utc");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("GroupId", "Cph");
+
+                    b.HasIndex("AssignedUserId")
+                        .HasDatabaseName("ix_holdings_assigned_user")
+                        .HasFilter("assigned_user_id IS NOT NULL");
+
+                    b.ToTable("holdings", (string)null);
                 });
 
             modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.ImportJobRejectionRow", b =>
@@ -388,6 +625,15 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .HasColumnType("text")
                         .HasColumnName("notes");
 
+                    b.Property<string>("OutcomeReason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("outcome_reason");
+
+                    b.Property<Guid?>("OutcomeReasonId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outcome_reason_id");
+
                     b.Property<string>("Priority")
                         .HasColumnType("text")
                         .HasColumnName("priority");
@@ -438,6 +684,8 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                     NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Context"), "gin");
                     NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Context"), new[] { "jsonb_path_ops" });
 
+                    b.HasIndex("OutcomeReasonId");
+
                     b.HasIndex("SuppressionExpiresAtUtc")
                         .HasDatabaseName("ix_issues_suppression_expiry")
                         .HasFilter("workflow_status = 'suppressed'");
@@ -458,7 +706,7 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
 
                             t.HasCheckConstraint("ck_issues_status", "status IN ('active', 'inactive')");
 
-                            t.HasCheckConstraint("ck_issues_workflow_status", "workflow_status IN ('todo', 'in-progress', 'suppressed', 'resolved', 'ignored', 'nonactionable')");
+                            t.HasCheckConstraint("ck_issues_workflow_status", "workflow_status IN ('todo', 'in-progress', 'suppressed', 'resolved', 'nonactionable')");
                         });
                 });
 
@@ -633,6 +881,25 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.HoldingActionRow", b =>
+                {
+                    b.HasOne("Cleanse.Storage.Postgres.Schema.CodedValueRow", null)
+                        .WithMany()
+                        .HasForeignKey("ActionTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_holding_actions_action_type");
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.HoldingRow", b =>
+                {
+                    b.HasOne("Cleanse.Storage.Postgres.Schema.UserRow", null)
+                        .WithMany()
+                        .HasForeignKey("AssignedUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_holdings_assigned_user");
+                });
+
             modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.ImportJobRejectionRow", b =>
                 {
                     b.HasOne("Cleanse.Storage.Postgres.Schema.ImportJobRow", null)
@@ -659,6 +926,12 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .WithMany()
                         .HasForeignKey("AssignedUserId")
                         .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Cleanse.Storage.Postgres.Schema.CodedValueRow", null)
+                        .WithMany()
+                        .HasForeignKey("OutcomeReasonId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_issues_outcome_reason");
                 });
 #pragma warning restore 612, 618
         }

@@ -29,7 +29,9 @@ public sealed class Issue
         int version,
         Guid? assignedUserId = null,
         string? assignedUserFullName = null,
-        DateTimeOffset? assignmentDetachedAtUtc = null)
+        DateTimeOffset? assignmentDetachedAtUtc = null,
+        Guid? outcomeReasonId = null,
+        string? outcomeReasonName = null)
     {
         Id = id;
         GroupId = groupId;
@@ -41,6 +43,8 @@ public sealed class Issue
         AssignedUserId = assignedUserId;
         AssignedUserFullName = assignedUserFullName;
         AssignmentDetachedAtUtc = assignmentDetachedAtUtc;
+        OutcomeReasonId = outcomeReasonId;
+        OutcomeReasonName = outcomeReasonName;
         Notes = notes;
         ExternalNotes = externalNotes;
         Priority = priority;
@@ -66,6 +70,19 @@ public sealed class Issue
 
     public WorkflowStatus WorkflowStatus { get; private set; }
 
+    /// <summary>
+    /// Why the issue has its outcome, from the admin-maintained list for that outcome. Only an
+    /// outcome (<see cref="StatusNames.IsOutcome"/>) carries one, and it goes when the outcome does.
+    /// </summary>
+    public Guid? OutcomeReasonId { get; private set; }
+
+    /// <summary>The reason's name when it was given. Reasons are never renamed.</summary>
+    public string? OutcomeReasonName { get; private set; }
+
+    /// <summary>
+    /// The assignment from before assignment moved to the holding. Still stored so existing data
+    /// round-trips, but the API reports, filters and changes the holding's assignee instead.
+    /// </summary>
     public string? AssignedTo { get; private set; }
 
     public Guid? AssignedUserId { get; private set; }
@@ -169,7 +186,9 @@ public sealed class Issue
             snapshot.Version,
             snapshot.AssignedUserId,
             snapshot.AssignedUserFullName,
-            snapshot.AssignmentDetachedAtUtc);
+            snapshot.AssignmentDetachedAtUtc,
+            snapshot.OutcomeReasonId,
+            snapshot.OutcomeReasonName);
     }
 
     public IssueSnapshot ToSnapshot() => new(
@@ -193,7 +212,9 @@ public sealed class Issue
         Version,
         AssignedUserId,
         AssignedUserFullName,
-        AssignmentDetachedAtUtc);
+        AssignmentDetachedAtUtc,
+        OutcomeReasonId,
+        OutcomeReasonName);
 
     /// <summary>
     /// Re-detection by a later run. Touches only the run id, the active flag and the context;
@@ -352,6 +373,9 @@ public sealed class Issue
                     nameof(SuppressionExpiresAtUtc), Format(SuppressionExpiresAtUtc), null));
                 SuppressionExpiresAtUtc = null;
             }
+
+            // The source gives no reason, and a reason for the outcome it replaced no longer applies.
+            ChangeOutcomeReason(null, changes);
         }
 
         var externalNotes = string.IsNullOrWhiteSpace(state.ExternalNotes) ? null : state.ExternalNotes.Trim();
@@ -379,7 +403,13 @@ public sealed class Issue
         return Apply(AuditEventKind.IssueExternalStateApplied, changes, now);
     }
 
-    public Result<IssueChange> ChangeWorkflowStatus(WorkflowStatus target, DateTimeOffset now)
+    /// <summary>
+    /// A caseworker's move along the triage axis. An outcome takes the <paramref name="reason"/>
+    /// given, which Can't resolve requires; any other status clears the reason. Choosing the
+    /// current outcome again with a different reason just changes the reason.
+    /// </summary>
+    public Result<IssueChange> ChangeWorkflowStatus(
+        WorkflowStatus target, DateTimeOffset now, OutcomeReason? reason = null)
     {
         if (target == WorkflowStatus.Suppressed)
         {
@@ -392,24 +422,46 @@ public sealed class Issue
             return DomainErrors.InvalidTransition(Id.Value, WorkflowStatus.ToWire(), target.ToWire());
         }
 
-        if (WorkflowStatus == target)
+        if (reason is not null && !target.IsOutcome())
         {
-            return IssueChange.None;
+            return DomainErrors.Validation(
+                $"Only an outcome can have a reason, and '{target.ToWire()}' is not one.", Id.Value);
         }
 
-        var changes = new List<AuditChange>
+        if (target == WorkflowStatus.Nonactionable && reason is null)
         {
-            new(nameof(WorkflowStatus), WorkflowStatus.ToWire(), target.ToWire())
-        };
-
-        if (SuppressionExpiresAtUtc is not null)
-        {
-            changes.Add(new AuditChange(nameof(SuppressionExpiresAtUtc), Format(SuppressionExpiresAtUtc), null));
-            SuppressionExpiresAtUtc = null;
+            return DomainErrors.ReasonRequired(Id.Value);
         }
 
-        WorkflowStatus = target;
+        var changes = new List<AuditChange>();
+        if (WorkflowStatus != target)
+        {
+            changes.Add(new AuditChange(nameof(WorkflowStatus), WorkflowStatus.ToWire(), target.ToWire()));
+
+            if (SuppressionExpiresAtUtc is not null)
+            {
+                changes.Add(new AuditChange(nameof(SuppressionExpiresAtUtc), Format(SuppressionExpiresAtUtc), null));
+                SuppressionExpiresAtUtc = null;
+            }
+
+            WorkflowStatus = target;
+        }
+
+        ChangeOutcomeReason(target.IsOutcome() ? reason : null, changes);
         return Apply(AuditEventKind.IssueWorkflowStatusChanged, changes, now);
+    }
+
+    private void ChangeOutcomeReason(OutcomeReason? reason, List<AuditChange> changes)
+    {
+        if (OutcomeReasonId == reason?.Id && string.Equals(OutcomeReasonName, reason?.Name, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        changes.Add(new AuditChange(nameof(OutcomeReasonId), OutcomeReasonId?.ToString(), reason?.Id.ToString()));
+        changes.Add(new AuditChange("OutcomeReason", OutcomeReasonName, reason?.Name));
+        OutcomeReasonId = reason?.Id;
+        OutcomeReasonName = reason?.Name;
     }
 
     public Result<IssueChange> Suppress(DateTimeOffset expiresAtUtc, DateTimeOffset now)

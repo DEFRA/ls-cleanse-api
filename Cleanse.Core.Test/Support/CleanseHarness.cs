@@ -1,5 +1,7 @@
 using Cleanse.Core.Abstractions;
+using Cleanse.Core.Commands.CodedValues;
 using Cleanse.Core.DependencyInjection;
+using Cleanse.Core.Domain;
 using Cleanse.Storage.InMemory;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -43,6 +45,21 @@ internal sealed class CleanseHarness : IDisposable
     public InMemoryIssueHistoryStore History => _provider.GetRequiredService<InMemoryIssueHistoryStore>();
 
     public InMemoryRuleRunStore Runs => _provider.GetRequiredService<InMemoryRuleRunStore>();
+
+    public InMemoryHoldingStore Holdings => _provider.GetRequiredService<InMemoryHoldingStore>();
+
+    public IUserStore Users => _provider.GetRequiredService<IUserStore>();
+
+    /// <summary>Someone holdings can be assigned to, added before they sign in.</summary>
+    public async Task<KnownUser> AddUserAsync(string fullName)
+    {
+        var email = $"{fullName.Replace(' ', '.').ToLowerInvariant()}@example.test";
+        return (await Users.RegisterAsync([KnownUser.Unclaimed(email, fullName)]))[0].User;
+    }
+
+    /// <summary>Adds an entry to an admin list, returning its id.</summary>
+    public async Task<Guid> AddCodedValueAsync(CodedList list, string name) =>
+        (await SendAsync(new AddCodedValueCommand(list, name, TestData.Alice))).Id;
 
     /// <summary>Dispatches and asserts success, returning the value.</summary>
     public async Task<T> SendAsync<T>(ICommand<T> command, CancellationToken cancellationToken = default)

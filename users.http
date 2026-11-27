@@ -3,7 +3,8 @@
 @apiKey = replace-with-local-development-key
 @tenantId = 11111111-1111-4111-8111-111111111111
 @clientId = 22222222-2222-4222-8222-222222222222
-@issueId = rule:example
+@groupId = cts-sam
+@cph = 01/036/8000
 
 ### Add people before they sign in. Names come from the address; known addresses are not duplicated.
 # @name registered
@@ -41,40 +42,36 @@ x-cleanse-api-key: {{apiKey}}
 GET {{baseUrl}}/v1/users?pageSize=501
 x-cleanse-api-key: {{apiKey}}
 
-### Fetch the current issue version before assignment; replace issueId with an existing issue.
-# @name issue
-GET {{baseUrl}}/v1/issues/{{issueId}}
+### Fetch the holding and its version before assignment; replace groupId and cph with a holding that has issues.
+# @name holding
+GET {{baseUrl}}/v1/holdings?groupId={{groupId}}&cph={{cph}}
 x-cleanse-api-key: {{apiKey}}
 
 ### Stable assignment, to someone who may not have signed in yet. From now on SPOL imports leave it alone.
-PUT {{baseUrl}}/v1/issues/{{issueId}}/assignee
+PUT {{baseUrl}}/v1/holdings/assignee
 x-cleanse-api-key: {{apiKey}}
 Content-Type: application/json
 
 {
+  "groupId": "{{groupId}}",
+  "cph": "{{cph}}",
   "userId": "{{registered.response.body.$.created[1].id}}",
-  "expectedVersion": {{issue.response.body.$.version}}
+  "expectedVersion": {{holding.response.body.$.version}}
 }
 
-### Explicit unassignment. Refetch the issue to supply expectedVersion when desired.
-PUT {{baseUrl}}/v1/issues/{{issueId}}/assignee
+### Explicit unassignment, recorded against the signed-in person the frontend acts for.
+PUT {{baseUrl}}/v1/holdings/assignee
 x-cleanse-api-key: {{apiKey}}
+x-cleanse-user-id: {{login.response.body.$.id}}
 Content-Type: application/json
 
-{"userId":null}
+{"groupId":"{{groupId}}","cph":"{{cph}}","userId":null}
 
-### Compatible legacy assignment.
-PUT {{baseUrl}}/v1/issues/{{issueId}}/assignee
-x-cleanse-api-key: {{apiKey}}
-Content-Type: application/json
-
-{"assignTo":"Legacy assignee"}
-
-### Filter by stable known user.
+### Filter by the holding's stable known user.
 GET {{baseUrl}}/v1/issues?assignedUserId={{login.response.body.$.id}}&pageNumber=1&pageSize=50
 x-cleanse-api-key: {{apiKey}}
 
-### Unassigned means neither stable ID nor nonblank legacy name.
+### Unassigned means the issue's holding has neither a stable user nor a nonblank name.
 GET {{baseUrl}}/v1/issues?unassigned=true
 x-cleanse-api-key: {{apiKey}}
 

@@ -1,3 +1,4 @@
+using Cleanse.Core.Commands.Holdings;
 using Cleanse.Core.Commands.Issues;
 using Cleanse.Core.Commands.Runs;
 using Cleanse.Core.Domain;
@@ -108,8 +109,10 @@ public class UpsertDetectionsTests
     {
         using var harness = await RunningHarnessAsync();
         var id = TestData.Key("a");
+        var holding = new HoldingKey(TestData.Group, "a");
+        var bob = await harness.AddUserAsync("Bob Jones");
         await harness.SendAsync(new UpsertDetectionsCommand("run-1", [TestData.Detection("a")], Actor.System));
-        await harness.SendAsync(new AssignIssueCommand(id, "alice", TestData.Alice));
+        await harness.SendAsync(new AssignHoldingCommand(holding, bob.Id, TestData.Alice));
         await harness.SendAsync(new SetIssueNotesCommand(id, "spoke to the keeper", TestData.Alice));
         await harness.SendAsync(new SetIssueWorkflowStatusCommand(id, WorkflowStatus.Resolved, TestData.Alice));
 
@@ -119,7 +122,7 @@ public class UpsertDetectionsTests
 
         var issue = await harness.Issues.GetAsync(id);
         Assert.Equal(WorkflowStatus.Resolved, issue!.WorkflowStatus);
-        Assert.Equal("alice", issue.AssignedTo);
+        Assert.Equal(bob.Id, (await harness.Holdings.GetAsync(holding))!.AssignedUserId);
         Assert.Equal("spoke to the keeper", issue.Notes);
         Assert.Equal("changed", issue.Context["keeper"]);
     }

@@ -1,4 +1,5 @@
 using Cleanse.Core.Abstractions;
+using Cleanse.Core.Domain;
 using Cleanse.Storage.Postgres.Schema;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -43,13 +44,18 @@ internal sealed class PostgresDataResetStore(CleanseDbContext db) : IDataResetSt
              WHERE issue_id IN (SELECT {Db.Issue.Id} FROM {Db.Issues} WHERE {Db.Issue.GroupId} = @group)
              """);
 
-        // Has to precede both tables it reads: audit rows reach their group through them.
+        // Has to precede both tables it reads: audit rows reach their group through them. The
+        // admin lists outlive a reset, so their audit does too.
         var audit = await DeleteAsync(
-            $"DELETE FROM {Db.AuditEntries}",
+            $"""
+             DELETE FROM {Db.AuditEntries}
+             WHERE subject IS NULL OR NOT starts_with(subject, '{AuditSubjects.CodedValuePrefix}')
+             """,
             $"""
              DELETE FROM {Db.AuditEntries}
              WHERE issue_id IN (SELECT {Db.Issue.Id} FROM {Db.Issues} WHERE {Db.Issue.GroupId} = @group)
                 OR run_id IN (SELECT run_id FROM {Db.RuleRuns} WHERE group_id = @group)
+                OR starts_with(subject, '{AuditSubjects.HoldingPrefix}' || @group || ':')
              """);
 
         var issues = await DeleteAsync(
@@ -59,6 +65,18 @@ internal sealed class PostgresDataResetStore(CleanseDbContext db) : IDataResetSt
         var runs = await DeleteAsync(
             $"DELETE FROM {Db.RuleRuns}",
             $"DELETE FROM {Db.RuleRuns} WHERE group_id = @group");
+
+        var notes = await DeleteAsync(
+            $"DELETE FROM {Db.HoldingNotes}",
+            $"DELETE FROM {Db.HoldingNotes} WHERE group_id = @group");
+
+        var actions = await DeleteAsync(
+            $"DELETE FROM {Db.HoldingActions}",
+            $"DELETE FROM {Db.HoldingActions} WHERE group_id = @group");
+
+        var holdings = await DeleteAsync(
+            $"DELETE FROM {Db.Holdings}",
+            $"DELETE FROM {Db.Holdings} WHERE {Db.Holding.GroupId} = @group");
 
         db.DataResets.Add(new DataResetRow
         {
@@ -71,7 +89,7 @@ internal sealed class PostgresDataResetStore(CleanseDbContext db) : IDataResetSt
 
         await transaction.CommitAsync(cancellationToken);
 
-        return new ResetCounts(issues, history, audit, runs, importJobs, rejections);
+        return new ResetCounts(issues, history, audit, runs, importJobs, rejections, holdings, notes, actions);
     }
 
     public async Task<DataResetRecord?> GetLastResetAsync(CancellationToken cancellationToken = default)

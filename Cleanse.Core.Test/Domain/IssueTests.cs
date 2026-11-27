@@ -121,20 +121,22 @@ public class IssueTests
 
     [Theory]
     [InlineData(WorkflowStatus.Resolved)]
-    [InlineData(WorkflowStatus.Ignored)]
+    [InlineData(WorkflowStatus.Nonactionable)]
     [InlineData(WorkflowStatus.InProgress)]
     public void Re_detection_never_touches_the_human_axis(WorkflowStatus triaged)
     {
         var issue = TestData.NewIssue("12/345/6789");
         issue.AssignTo("alice", Night1);
         issue.SetNotes("chased the keeper", Night1);
-        Assert.True(issue.ChangeWorkflowStatus(triaged, Night1).IsSuccess);
+        var reason = triaged.IsOutcome() ? new OutcomeReason(Guid.NewGuid(), "Duplicate") : null;
+        Assert.True(issue.ChangeWorkflowStatus(triaged, Night1, reason).IsSuccess);
 
         issue.Deactivate(Night2);
         issue.RecordDetection("run-9", IssueContext.From(("cph", "x")), Night2.AddDays(1));
 
         Assert.Equal(IssueStatus.Active, issue.Status);
         Assert.Equal(triaged, issue.WorkflowStatus);
+        Assert.Equal(reason?.Id, issue.OutcomeReasonId);
         Assert.Equal("alice", issue.AssignedTo);
         Assert.Equal("chased the keeper", issue.Notes);
     }

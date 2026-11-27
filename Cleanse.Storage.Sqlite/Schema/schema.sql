@@ -16,11 +16,13 @@ CREATE TABLE IF NOT EXISTS issues (
     rule_id                     TEXT    NOT NULL,
     run_id                      TEXT    NOT NULL,
     status                      TEXT    NOT NULL CHECK (status IN ('active', 'inactive')),
-    workflow_status             TEXT    NOT NULL CHECK (workflow_status IN ('todo', 'in-progress', 'suppressed', 'resolved', 'ignored', 'nonactionable')),
+    workflow_status             TEXT    NOT NULL CHECK (workflow_status IN ('todo', 'in-progress', 'suppressed', 'resolved', 'nonactionable')),
     assigned_to                 TEXT        NULL,
     assigned_user_id            TEXT        NULL REFERENCES users(id) ON DELETE RESTRICT,
     assigned_user_full_name     TEXT        NULL,
     assignment_detached_at_utc  TEXT        NULL,
+    outcome_reason_id           TEXT        NULL REFERENCES coded_values(id) ON DELETE RESTRICT,
+    outcome_reason              TEXT        NULL,
     notes                       TEXT        NULL,
     external_notes              TEXT        NULL,
     priority                    TEXT        NULL CHECK (priority IS NULL OR priority IN ('low', 'medium', 'high')),
@@ -89,8 +91,11 @@ CREATE TABLE IF NOT EXISTS audit_entries (
     actor_display_name  TEXT    NOT NULL,
     actor_kind          TEXT    NOT NULL,
     at_utc              TEXT    NOT NULL,
+    subject             TEXT        NULL,
     changes             TEXT    NOT NULL DEFAULT '[]'
 );
+
+-- ix_audit_entries_subject is created by CleanseSqliteDatabase, after an older table gains the column.
 
 CREATE INDEX IF NOT EXISTS ix_audit_entries_issue
     ON audit_entries (issue_id, at_utc DESC, sequence DESC) WHERE issue_id IS NOT NULL;
@@ -185,3 +190,69 @@ CREATE TABLE IF NOT EXISTS users (
     last_logged_in_at_utc   TEXT     NULL,
     email                   TEXT     NULL
 );
+
+-- The admin-maintained lists. Never deleted, by a reset or otherwise: notes, actions and issue
+-- outcomes point at their entries. name_key is the trimmed, lower-cased name.
+CREATE TABLE IF NOT EXISTS coded_values (
+    id              TEXT    NOT NULL PRIMARY KEY,
+    list            TEXT    NOT NULL CHECK (list IN ('action-types', 'resolved-reasons', 'cant-resolve-reasons')),
+    name            TEXT    NOT NULL,
+    name_key        TEXT    NOT NULL,
+    is_active       INTEGER NOT NULL,
+    created_at_utc  TEXT    NOT NULL,
+    updated_at_utc  TEXT    NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_coded_values_list_name ON coded_values (list, name_key);
+
+-- A holding with something recorded against it, keyed like the issues' context.
+CREATE TABLE IF NOT EXISTS holdings (
+    group_id                    TEXT    NOT NULL,
+    cph                         TEXT    NOT NULL,
+    assigned_to                 TEXT        NULL,
+    assigned_user_id            TEXT        NULL REFERENCES users(id) ON DELETE RESTRICT,
+    assigned_user_full_name     TEXT        NULL,
+    assignment_detached_at_utc  TEXT        NULL,
+    created_at_utc              TEXT    NOT NULL,
+    updated_at_utc              TEXT    NOT NULL,
+    version                     INTEGER NOT NULL,
+    PRIMARY KEY (group_id, cph)
+);
+
+CREATE INDEX IF NOT EXISTS ix_holdings_assigned_user
+    ON holdings (assigned_user_id) WHERE assigned_user_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS holding_notes (
+    sequence                 INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    id                       TEXT    NOT NULL UNIQUE,
+    group_id                 TEXT    NOT NULL,
+    cph                      TEXT    NOT NULL,
+    text                     TEXT    NOT NULL,
+    context                  TEXT        NULL,
+    created_at_utc           TEXT    NOT NULL,
+    created_by_id            TEXT    NOT NULL,
+    created_by_display_name  TEXT    NOT NULL,
+    created_by_kind          TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_holding_notes_holding
+    ON holding_notes (group_id, cph, created_at_utc DESC, sequence DESC);
+
+CREATE TABLE IF NOT EXISTS holding_actions (
+    sequence                 INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+    id                       TEXT    NOT NULL UNIQUE,
+    batch_id                 TEXT    NOT NULL,
+    group_id                 TEXT    NOT NULL,
+    cph                      TEXT    NOT NULL,
+    action_type_id           TEXT    NOT NULL REFERENCES coded_values(id) ON DELETE RESTRICT,
+    action_type_name         TEXT    NOT NULL,
+    created_at_utc           TEXT    NOT NULL,
+    created_by_id            TEXT    NOT NULL,
+    created_by_display_name  TEXT    NOT NULL,
+    created_by_kind          TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_holding_actions_holding
+    ON holding_actions (group_id, cph, created_at_utc DESC, sequence DESC);
+
+CREATE INDEX IF NOT EXISTS ix_holding_actions_created ON holding_actions (created_at_utc);

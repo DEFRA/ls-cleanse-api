@@ -86,10 +86,10 @@ internal sealed class EngineHarness : IDisposable
         return page.Value.Items;
     }
 
-    public async Task AssignAsync(string issueId, string assignee)
+    public async Task StartWorkAsync(string issueId)
     {
-        var result = await Dispatcher.SendAsync(new Core.Commands.Issues.AssignIssueCommand(
-            IssueId.From(issueId), assignee, Actor.Human(assignee)));
+        var result = await Dispatcher.SendAsync(new Core.Commands.Issues.SetIssueWorkflowStatusCommand(
+            IssueId.From(issueId), WorkflowStatus.InProgress, Actor.Human("alice")));
         Assert.True(result.IsSuccess, $"{result.Error}");
     }
 
@@ -176,7 +176,7 @@ public class CtsSamRuleEngineTests
         using var harness = new EngineHarness(source);
 
         await harness.RunAsync();
-        await harness.AssignAsync(IssueId.Derive("2", "02/002/0002").Value, "alice");
+        await harness.StartWorkAsync(IssueId.Derive("2", "02/002/0002").Value);
 
         source.Records = [Records.InBoth("02/002/0002")];
         await harness.RunAsync();
@@ -188,7 +188,7 @@ public class CtsSamRuleEngineTests
 
         var issue = Assert.Single(await harness.GetIssuesAsync());
         Assert.Equal("active", issue.Status);
-        Assert.Equal("alice", issue.AssignedTo);
+        Assert.Equal("in-progress", issue.WorkflowStatus);
     }
 
     [Fact]

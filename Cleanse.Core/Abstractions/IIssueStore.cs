@@ -21,6 +21,20 @@ public interface IIssueStore
     /// </summary>
     Task<bool> SaveAsync(Issue issue, int? expectedVersion, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Optimistic write of several issues as one: either every issue is saved, or, when any
+    /// stored version differs from its expected one, none is and the result is false.
+    /// </summary>
+    Task<bool> SaveAllAsync(
+        IReadOnlyCollection<(Issue Issue, int ExpectedVersion)> issues,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Every issue in the group, active or not, whose context CPH is one of <paramref name="cphs"/>.</summary>
+    Task<IReadOnlyList<Issue>> GetForHoldingsAsync(
+        string groupId,
+        IReadOnlyCollection<string> cphs,
+        CancellationToken cancellationToken = default);
+
     /// <summary>Last-write-wins bulk write used by the detection path.</summary>
     Task SaveBatchAsync(IReadOnlyCollection<Issue> issues, CancellationToken cancellationToken = default);
 

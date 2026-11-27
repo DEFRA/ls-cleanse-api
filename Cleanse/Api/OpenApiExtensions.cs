@@ -46,6 +46,14 @@ public static class OpenApiExtensions
         public static readonly string[] IssueGroupSortField = Enum.GetNames<IssueGroupSortField>();
 
         public static readonly string[] SortDirection = Enum.GetNames<SortDirection>();
+
+        public static readonly string[] HoldingStatus =
+            [.. Enum.GetValues<HoldingStatus>().Select(HoldingStatuses.ToWire)];
+
+        public static readonly string[] HoldingEventKind = [.. HoldingEventKinds.All];
+
+        public static readonly string[] CodedList =
+            [.. Enum.GetValues<CodedList>().Select(CodedLists.ToWire)];
     }
 
     /// <summary>
@@ -82,6 +90,16 @@ public static class OpenApiExtensions
         {
             ["workflowStatus"] = Vocabularies.WorkflowStatus
         },
+        [typeof(Contracts.UpdateHoldingIssuesRequest)] = new()
+        {
+            ["workflowStatus"] = Vocabularies.WorkflowStatus
+        },
+        [typeof(CphIssuesDto)] = new() { ["holdingStatus"] = Vocabularies.HoldingStatus },
+        [typeof(HoldingDetailDto)] = new() { ["status"] = Vocabularies.HoldingStatus },
+        // Its statuses are left open: they come from the audit log, which still says "ignored"
+        // for changes made before Ignored merged into Can't resolve.
+        [typeof(HoldingEventDto)] = new() { ["kind"] = Vocabularies.HoldingEventKind },
+        [typeof(CodedValueDto)] = new() { ["list"] = Vocabularies.CodedList },
         [typeof(Contracts.AddHistoryRequest)] = new()
         {
             ["actionType"] = Vocabularies.HistoryActionType
@@ -97,7 +115,8 @@ public static class OpenApiExtensions
         ["sortBy"] = Vocabularies.IssueSortField,
         ["sortDirection"] = Vocabularies.SortDirection,
         ["groupSortBy"] = Vocabularies.IssueGroupSortField,
-        ["groupSortDirection"] = Vocabularies.SortDirection
+        ["groupSortDirection"] = Vocabularies.SortDirection,
+        ["list"] = Vocabularies.CodedList
     };
 
     /// <summary>

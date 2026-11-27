@@ -1,4 +1,5 @@
 using Cleanse.Core.Abstractions;
+using Cleanse.Core.Domain;
 using Cleanse.Storage.Sqlite.Schema;
 using Microsoft.Data.Sqlite;
 
@@ -48,13 +49,17 @@ internal sealed class SqliteDataResetStore(CleanseSqliteDatabase database) : IDa
             WHERE issue_id IN (SELECT id FROM issues WHERE group_id = $group)
             """);
 
-        // Has to precede both tables it reads: audit rows reach their group through them.
+        // Has to precede both tables it reads: audit rows reach their group through them. The
+        // admin lists outlive a reset, so their audit does too.
+        const string codedValue = AuditSubjects.CodedValuePrefix;
+        const string holding = AuditSubjects.HoldingPrefix;
         var audit = await DeleteAsync(
-            "DELETE FROM audit_entries",
-            """
+            $"DELETE FROM audit_entries WHERE subject IS NULL OR substr(subject, 1, {codedValue.Length}) <> '{codedValue}'",
+            $"""
             DELETE FROM audit_entries
             WHERE issue_id IN (SELECT id FROM issues WHERE group_id = $group)
                OR run_id IN (SELECT run_id FROM rule_runs WHERE group_id = $group)
+               OR substr(subject, 1, length('{holding}' || $group || ':')) = '{holding}' || $group || ':'
             """);
 
         var issues = await DeleteAsync(
@@ -64,6 +69,18 @@ internal sealed class SqliteDataResetStore(CleanseSqliteDatabase database) : IDa
         var runs = await DeleteAsync(
             "DELETE FROM rule_runs",
             "DELETE FROM rule_runs WHERE group_id = $group");
+
+        var notes = await DeleteAsync(
+            "DELETE FROM holding_notes",
+            "DELETE FROM holding_notes WHERE group_id = $group");
+
+        var actions = await DeleteAsync(
+            "DELETE FROM holding_actions",
+            "DELETE FROM holding_actions WHERE group_id = $group");
+
+        var holdings = await DeleteAsync(
+            "DELETE FROM holdings",
+            "DELETE FROM holdings WHERE group_id = $group");
 
         await using (var record = connection.CreateCommand())
         {
@@ -81,7 +98,7 @@ internal sealed class SqliteDataResetStore(CleanseSqliteDatabase database) : IDa
 
         await transaction.CommitAsync(cancellationToken);
 
-        return new ResetCounts(issues, history, audit, runs, importJobs, rejections);
+        return new ResetCounts(issues, history, audit, runs, importJobs, rejections, holdings, notes, actions);
     }
 
     public async Task<DataResetRecord?> GetLastResetAsync(CancellationToken cancellationToken = default)

@@ -30,19 +30,35 @@ DEFRA's Core Delivery Platform (CDP) against Aurora PostgreSQL.
 
 Each issue has two independent statuses:
 
-| Status           | Set by           | Values                                                                   |
-| ---------------- | ---------------- | ------------------------------------------------------------------------ |
-| `IssueStatus`    | the rules engine | `Active`, `Inactive`                                                     |
-| `WorkflowStatus` | caseworkers      | `Todo`, `InProgress`, `Suppressed`, `Resolved`, `Ignored`, `Nonactionable` |
+| Status           | Set by           | Values                                                   |
+| ---------------- | ---------------- | -------------------------------------------------------- |
+| `IssueStatus`    | the rules engine | `Active`, `Inactive`                                     |
+| `WorkflowStatus` | caseworkers      | `Todo`, `InProgress`, `Suppressed`, `Resolved`, `Nonactionable` |
+
+`Nonactionable` is shown as "Can't resolve". It replaced `Ignored`, and the `0010` changelog turns
+existing Ignored issues into it. The two outcomes take a reason from an admin-maintained list:
+optional for `Resolved`, required for `Nonactionable`.
 
 An issue is identified by the rule and the holding (CPH) it concerns, so the same discrepancy
-detected again on a later night updates the same record: its assignee, notes, workflow status and
-history are kept. When a run completes, issues in the group that the run did not detect again are
-set to `Inactive`, again without changing their workflow status.
+detected again on a later night updates the same record: its notes, workflow status and history
+are kept. When a run completes, issues in the group that the run did not detect again are set to
+`Inactive`, again without changing their workflow status.
 
-Every change to an issue is recorded in an append-only audit trail with before and after values.
-Case work — comments, letters sent, phone calls — is recorded separately as issue history. An issue
-can be suppressed until a date; a maintenance sweep returns lapsed suppressions to the queue.
+Caseworkers work a holding (a CPH within a rule group) as a unit. The holding owns the assignee,
+notes and recorded actions; its status is worked out from its active issues whenever it is read:
+
+| Holding status | When                                                  |
+| -------------- | ----------------------------------------------------- |
+| `in-progress`  | An active issue is In progress.                       |
+| `todo`         | An active issue is To do, and none is In progress.    |
+| `suppressed`   | No active issue is open, and at least one is suppressed. |
+| `closed`       | No active issue is open or suppressed.                |
+
+Every change to an issue is recorded in an append-only audit trail with before and after values,
+and so is every change to a holding's assignee and to the admin lists. Case work recorded before
+holdings existed — comments, letters sent, phone calls — is kept as issue history and shown on the
+holding. An issue can be suppressed until a date; a maintenance sweep returns lapsed suppressions
+to the queue.
 
 ### Rules
 
@@ -81,12 +97,11 @@ Two authentication schemes are supported:
 
 | Method   | Route                             | Purpose                                                                                                        |
 | -------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `GET`    | `/v1/issues`                      | Search and page. Filter by group, rule, run, status, workflow status, assignee, date ranges and a search term. |
-| `GET`    | `/v1/issues/by-cph`               | The same search, grouped by CPH. Pages count CPHs, newest activity first, each carrying all its issues.        |
+| `GET`    | `/v1/issues`                      | Search and page. Filter by group, rule, run, status, workflow status, the holding's assignee, date ranges and a search term. |
+| `GET`    | `/v1/issues/by-cph`               | The same search, grouped by CPH. Pages count CPHs, newest activity first, each carrying all its issues and its holding's status and assignee. |
 | `GET`    | `/v1/issues/{id}`                 | Fetch one issue.                                                                                               |
-| `PUT`    | `/v1/issues/{id}/assignee`        | Assign, or unassign.                                                                                           |
 | `PUT`    | `/v1/issues/{id}/notes`           | Replace the notes.                                                                                             |
-| `PUT`    | `/v1/issues/{id}/workflow-status` | Change the workflow status.                                                                                    |
+| `PUT`    | `/v1/issues/{id}/workflow-status` | Change the workflow status, with a `reasonId` for an outcome.                                                  |
 | `PUT`    | `/v1/issues/{id}/suppression`     | Suppress until a date.                                                                                         |
 | `DELETE` | `/v1/issues/{id}/suppression`     | Lift a suppression early.                                                                                      |
 | `GET`    | `/v1/issues/{id}/audit`           | The issue's audit trail.                                                                                       |
@@ -95,6 +110,36 @@ Two authentication schemes are supported:
 
 Updates take an `expectedVersion` and return `409 Conflict` if the issue has changed since it was
 read.
+
+### Holdings
+
+A CPH contains slashes, so it is passed in the query string or the body, never the path.
+
+| Method | Route                          | Purpose                                                                                                   |
+| ------ | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/v1/holdings?groupId&cph`     | Every issue at the CPH, open first, with the holding's status, assignee, notes and history.              |
+| `PUT`  | `/v1/holdings/assignee`        | Assign the holding to a known user, or unassign it. SPOL imports then leave the assignment alone.       |
+| `POST` | `/v1/holdings/notes`           | Add a note. Notes are never edited or removed.                                                           |
+| `POST` | `/v1/holdings/actions`         | Record one or more actions, of types from the `action-types` list, with an optional note.               |
+| `POST` | `/v1/holdings/workflow-status` | Give several of the holding's issues one new status, all or none, with a reason, end date and note as needed. |
+
+The front-end acts for a signed-in person, and names them in the `x-cleanse-user-id` header so the
+audit trail, notes and actions show the person rather than the service. Only callers allowed to use
+the user directory may send it, and only with the id of a known user: otherwise the request fails
+with `403` or `400`. Without it, changes are recorded against the calling service.
+
+### Lists
+
+The admin-maintained lists are `action-types`, `resolved-reasons` and `cant-resolve-reasons`.
+Entries are added and switched on or off, never renamed or deleted, and a reset keeps them.
+
+| Method | Route                            | Purpose                                                             |
+| ------ | -------------------------------- | ------------------------------------------------------------------- |
+| `GET`  | `/v1/lists/{list}`               | Every entry, ordered by name. `activeOnly=true` leaves out those switched off. |
+| `POST` | `/v1/lists/{list}`               | Add an entry. `409` if the list already has that name.             |
+| `PUT`  | `/v1/lists/{list}/{id}/active`   | Switch an entry on or off.                                          |
+
+Only the front-end may change the lists; it decides who is an admin.
 
 ### Runs and rules
 
@@ -119,7 +164,7 @@ The API also exposes the run lifecycle used by the rules engine (`POST /v1/runs`
 | Method | Route                | Purpose                                                                                      |
 | ------ | -------------------- | -------------------------------------------------------------------------------------------- |
 | `POST` | `/v1/users/logins`   | Record that someone has signed in to the front-end. A first sign-in claims the user added for their email address. |
-| `POST` | `/v1/users`          | Add people by email address before they sign in, so issues can be assigned to them.       |
+| `POST` | `/v1/users`          | Add people by email address before they sign in, so holdings can be assigned to them.    |
 | `GET`  | `/v1/users`          | Everyone Cleanse knows about, signed in or not, paged and ordered by name.                  |
 | `GET`  | `/v1/diagnostics`    | Dependency checks, issue counts and build information, for the front-end's status page.      |
 

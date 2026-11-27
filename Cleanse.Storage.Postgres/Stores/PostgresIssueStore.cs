@@ -35,7 +35,9 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
             {Db.Issue.UpdatedAtUtc} = EXCLUDED.{Db.Issue.UpdatedAtUtc},
             {Db.Issue.ActivatedAtUtc} = EXCLUDED.{Db.Issue.ActivatedAtUtc},
             {Db.Issue.DeactivatedAtUtc} = EXCLUDED.{Db.Issue.DeactivatedAtUtc},
-            {Db.Issue.Version} = EXCLUDED.{Db.Issue.Version}
+            {Db.Issue.Version} = EXCLUDED.{Db.Issue.Version},
+            {Db.Issue.OutcomeReasonId} = EXCLUDED.{Db.Issue.OutcomeReasonId},
+            {Db.Issue.OutcomeReason} = EXCLUDED.{Db.Issue.OutcomeReason}
         """;
 
     public async Task<Issue?> GetAsync(IssueId id, CancellationToken cancellationToken = default)
@@ -93,6 +95,78 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
         }
 
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<bool> SaveAllAsync(
+        IReadOnlyCollection<(Issue Issue, int ExpectedVersion)> issues,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(issues);
+        if (issues.Count == 0)
+        {
+            return true;
+        }
+
+        var connection = await OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        foreach (var (issue, expected) in issues)
+        {
+            await using var command = new NpgsqlCommand($"""
+                INSERT INTO {Db.Issues} ({Db.Issue.AllColumns})
+                VALUES {IssueValuesClause()}
+                ON CONFLICT ({Db.Issue.Id}) DO UPDATE SET
+                {UpsertAssignments}
+                WHERE {Db.Issues}.{Db.Issue.Version} = @expected_version
+                """, connection, transaction);
+
+            AddIssueParameters(command, issue.ToSnapshot().ToRow());
+            command.Parameters.AddWithValue("expected_version", expected);
+
+            if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return false;
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<IReadOnlyList<Issue>> GetForHoldingsAsync(
+        string groupId,
+        IReadOnlyCollection<string> cphs,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
+        ArgumentNullException.ThrowIfNull(cphs);
+        if (cphs.Count == 0)
+        {
+            return [];
+        }
+
+        // The CPH expression is the one ix_issues_group_cph indexes, so the planner can use it.
+        var connection = await OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand($"""
+            SELECT {Db.Issue.AllColumns} FROM {Db.Issues}
+            WHERE {Db.Issue.GroupId} = @group_id AND {Db.Issue.Cph} = ANY(@cphs)
+            ORDER BY {Db.Issue.Id}
+            """, connection);
+        command.Parameters.AddWithValue("group_id", groupId);
+        command.Parameters.Add(new NpgsqlParameter("cphs", NpgsqlDbType.Array | NpgsqlDbType.Text)
+        {
+            Value = cphs.Distinct(StringComparer.Ordinal).ToArray()
+        });
+
+        var found = new List<Issue>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            found.Add(ReadIssue(reader));
+        }
+
+        return found;
     }
 
     public async Task SaveBatchAsync(
@@ -194,6 +268,15 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
                 }
                 await WriteNullableTextAsync(writer, row.AssignedUserFullName, cancellationToken);
                 await WriteNullableTimestampAsync(writer, row.AssignmentDetachedAtUtc, cancellationToken);
+                if (row.OutcomeReasonId is { } reasonId)
+                {
+                    await writer.WriteAsync(reasonId, NpgsqlDbType.Uuid, cancellationToken);
+                }
+                else
+                {
+                    await writer.WriteNullAsync(cancellationToken);
+                }
+                await WriteNullableTextAsync(writer, row.OutcomeReason, cancellationToken);
             }
 
             await writer.CompleteAsync(cancellationToken);
@@ -429,7 +512,9 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
         reader.GetInt32(17),
         reader.IsDBNull(18) ? null : reader.GetGuid(18),
         reader.IsDBNull(19) ? null : reader.GetString(19),
-        reader.IsDBNull(20) ? null : reader.GetFieldValue<DateTimeOffset>(20)));
+        reader.IsDBNull(20) ? null : reader.GetFieldValue<DateTimeOffset>(20),
+        reader.IsDBNull(21) ? null : reader.GetGuid(21),
+        reader.IsDBNull(22) ? null : reader.GetString(22)));
 
     internal static void AddIssueParameters(NpgsqlCommand command, IssueRow row, string suffix = "")
     {
@@ -474,6 +559,14 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
         {
             Value = (object?)row.AssignmentDetachedAtUtc ?? DBNull.Value
         });
+        command.Parameters.Add(new NpgsqlParameter(names[21], NpgsqlDbType.Uuid)
+        {
+            Value = (object?)row.OutcomeReasonId ?? DBNull.Value
+        });
+        command.Parameters.Add(new NpgsqlParameter(names[22], NpgsqlDbType.Text)
+        {
+            Value = (object?)row.OutcomeReason ?? DBNull.Value
+        });
     }
 
     /// <summary>
@@ -489,14 +582,14 @@ internal sealed class PostgresIssueStore(CleanseDbContext db, CleansePostgresOpt
             "notes", "external_notes", "priority", "external_received_at_utc",
             "suppression_expires_at_utc", "context", "created_at_utc", "updated_at_utc",
             "activated_at_utc", "deactivated_at_utc", "version", "assigned_user_id", "assigned_user_full_name",
-            "assignment_detached_at_utc"
+            "assignment_detached_at_utc", "outcome_reason_id", "outcome_reason"
         ]
         :
         [
             $"id{suffix}", $"g{suffix}", $"ru{suffix}", $"rn{suffix}", $"s{suffix}", $"w{suffix}",
             $"a{suffix}", $"n{suffix}", $"xn{suffix}", $"p{suffix}", $"xr{suffix}", $"e{suffix}",
             $"c{suffix}", $"cr{suffix}", $"u{suffix}", $"ac{suffix}", $"de{suffix}", $"v{suffix}",
-            $"au{suffix}", $"an{suffix}", $"ad{suffix}"
+            $"au{suffix}", $"an{suffix}", $"ad{suffix}", $"ori{suffix}", $"orn{suffix}"
         ];
 
     internal static string IssueValuesClause(string suffix = "") =>

@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Cleanse.Api.Test.Support;
+using Cleanse.Api;
 using Cleanse.Auth;
 using Cleanse.Core.Contracts;
 using Microsoft.AspNetCore.Authorization;
@@ -199,13 +200,52 @@ public sealed class UserEndpointTests(ApiFactory factory) : IClassFixture<ApiFac
             (await otherService.PostAsJsonAsync("/v1/users", new { emails = new[] { "a@example.test" } })).StatusCode);
 
         var suffix = Guid.NewGuid().ToString("N");
-        await ResetSeed.RunAsync(frontend, $"service-users-{suffix}", suffix);
-        var route = $"/v1/issues/{ResetSeed.Id($"{suffix}-a")}/assignee";
-        var stable = new { userId = user.Id };
-        Assert.Equal(HttpStatusCode.Forbidden, (await otherService.PutAsJsonAsync(route, stable)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await frontend.PutAsJsonAsync(route, stable)).StatusCode);
-        Assert.Equal(HttpStatusCode.OK,
-            (await otherService.PutAsJsonAsync(route, new { assignTo = "legacy" })).StatusCode);
+        var group = $"service-users-{suffix}";
+        await ResetSeed.RunAsync(frontend, group, suffix);
+        var stable = new { groupId = group, cph = $"{suffix}-a", userId = user.Id };
+        Assert.Equal(HttpStatusCode.Forbidden, (await otherService.PutAsJsonAsync("/v1/holdings/assignee", stable)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await frontend.PutAsJsonAsync("/v1/holdings/assignee", stable)).StatusCode);
+
+        // Only the front end may say which person a change was made for.
+        var note = new { groupId = group, cph = $"{suffix}-a", text = "Called the keeper" };
+        using var forged = new HttpRequestMessage(HttpMethod.Post, "/v1/holdings/notes") { Content = JsonContent.Create(note) };
+        forged.Headers.Add("x-test-service", "another-service");
+        forged.Headers.Add(ActingUser.HeaderName, user.Id.ToString());
+        var refused = await host.CreateClient().SendAsync(forged);
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Equal("auth.acting_user_not_allowed", (await refused.ReadJsonAsync()).GetProperty("code").GetString());
+
+        using var vouched = new HttpRequestMessage(HttpMethod.Post, "/v1/holdings/notes") { Content = JsonContent.Create(note) };
+        vouched.Headers.Add("x-test-service", "ls-cleanse-ui");
+        vouched.Headers.Add(ActingUser.HeaderName, user.Id.ToString());
+        var written = await (await host.CreateClient().SendAsync(vouched)).ReadJsonAsync();
+        Assert.Equal(user.Id.ToString(), written.GetProperty("createdById").GetString());
+        Assert.Equal(user.FullName, written.GetProperty("createdByDisplayName").GetString());
+
+        // Without the header the note is the calling service's.
+        var unattributed = await (await otherService.PostAsJsonAsync("/v1/holdings/notes", note)).ReadJsonAsync();
+        Assert.Equal("another-service", unattributed.GetProperty("createdById").GetString());
+    }
+
+    [Fact]
+    public async Task The_acting_user_must_be_one_known_user()
+    {
+        using var client = factory.CreateAuthenticatedClient();
+        var suffix = Guid.NewGuid().ToString("N");
+        var group = $"acting-{suffix}";
+        await ResetSeed.RunAsync(client, group, suffix);
+        var note = new { groupId = group, cph = $"{suffix}-a", text = "Called the keeper" };
+
+        foreach (var value in new[] { "not-a-guid", Guid.Empty.ToString(), Guid.NewGuid().ToString() })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/v1/holdings/notes") { Content = JsonContent.Create(note) };
+            request.Headers.Add(ActingUser.HeaderName, value);
+            Assert.Equal(HttpStatusCode.BadRequest, (await client.SendAsync(request)).StatusCode);
+        }
+
+        var holding = await (await client.GetAsync($"/v1/holdings?groupId={group}&cph={suffix}-a")).ReadJsonAsync();
+        Assert.DoesNotContain(holding.GetProperty("notes").EnumerateArray(),
+            n => n.GetProperty("text").GetString() == "Called the keeper");
     }
 
     [Fact]
@@ -216,23 +256,18 @@ public sealed class UserEndpointTests(ApiFactory factory) : IClassFixture<ApiFac
         var user = (await (await client.PostAsJsonAsync("/v1/users/logins", login))
             .Content.ReadFromJsonAsync<UserDto>())!;
         var suffix = Guid.NewGuid().ToString("N");
-        await ResetSeed.RunAsync(client, $"users-{suffix}", suffix);
+        var group = $"users-{suffix}";
+        await ResetSeed.RunAsync(client, group, suffix);
         var issueId = ResetSeed.Id($"{suffix}-a");
-        var route = $"/v1/issues/{issueId}/assignee";
-        var original = await (await client.GetAsync($"/v1/issues/{issueId}")).ReadJsonAsync();
-        var version = original.GetProperty("version").GetInt32();
+        var cph = $"{suffix}-a";
+        const string route = "/v1/holdings/assignee";
 
-        foreach (var invalid in new object[]
-        {
-            new { userId = Guid.NewGuid(), expectedVersion = version },
-            new { userId = user.Id, assignTo = "forged" }
-        })
-        {
-            Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(route, invalid)).StatusCode);
-        }
+        Assert.Equal(HttpStatusCode.BadRequest,
+            (await client.PutAsJsonAsync(route, new { groupId = group, cph, userId = Guid.NewGuid(), expectedVersion = 0 })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await client.PutAsJsonAsync(route, new { groupId = group, cph = "no-such-cph", userId = user.Id })).StatusCode);
 
-        // tenantId and clientId from an older front end are ignored rather than rejected.
-        var payload = new { userId = user.Id, tenantId = "ignored", clientId = "ignored", expectedVersion = version };
+        var payload = new { groupId = group, cph, userId = user.Id, expectedVersion = 0 };
         var assignedResponse = await client.PutAsJsonAsync(route, payload);
         Assert.Equal(HttpStatusCode.OK, assignedResponse.StatusCode);
         var assigned = await assignedResponse.ReadJsonAsync();
@@ -240,27 +275,29 @@ public sealed class UserEndpointTests(ApiFactory factory) : IClassFixture<ApiFac
         Assert.Equal(user.FullName, assigned.GetProperty("assignedTo").GetString());
         Assert.Equal(user.FullName, assigned.GetProperty("assignedUserFullName").GetString());
         Assert.Equal(System.Text.Json.JsonValueKind.String, assigned.GetProperty("assignmentDetachedAtUtc").ValueKind);
-        Assert.Equal(version + 1, assigned.GetProperty("version").GetInt32());
+        Assert.Equal(1, assigned.GetProperty("version").GetInt32());
 
-        Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(route, payload)).StatusCode);
+        var conflict = await client.PutAsJsonAsync(route, payload);
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+        Assert.Equal("holding.concurrency_conflict", (await conflict.ReadJsonAsync()).GetProperty("code").GetString());
         var repeated = await (await client.PutAsJsonAsync(route,
-            new { userId = user.Id, expectedVersion = version + 1 })).ReadJsonAsync();
-        Assert.Equal(version + 1, repeated.GetProperty("version").GetInt32());
+            new { groupId = group, cph, userId = user.Id, expectedVersion = 1 })).ReadJsonAsync();
+        Assert.Equal(1, repeated.GetProperty("version").GetInt32());
 
-        var audit = await (await client.GetAsync($"/v1/issues/{issueId}/audit")).ReadJsonAsync();
-        var changes = audit.GetProperty("items").EnumerateArray()
-            .SelectMany(e => e.GetProperty("changes").EnumerateArray());
-        Assert.Contains(changes, c => c.GetProperty("field").GetString() == "AssignedUserId" &&
-            c.GetProperty("to").GetString() == user.Id.ToString());
+        // Every issue at the holding reports its assignee.
+        var issue = await (await client.GetAsync($"/v1/issues/{issueId}")).ReadJsonAsync();
+        Assert.Equal(user.Id, issue.GetProperty("assignedUserId").GetGuid());
 
-        var legacy = await (await client.PutAsJsonAsync(route, new { assignTo = user.FullName })).ReadJsonAsync();
-        Assert.Equal(System.Text.Json.JsonValueKind.Null, legacy.GetProperty("assignedUserId").ValueKind);
-        Assert.Equal(user.FullName, legacy.GetProperty("assignedTo").GetString());
-        await client.PutAsJsonAsync(route, new { userId = user.Id });
-        var unassigned = await (await client.PutAsJsonAsync(route, new { userId = (Guid?)null })).ReadJsonAsync();
+        var holding = await (await client.GetAsync($"/v1/holdings?groupId={group}&cph={cph}")).ReadJsonAsync();
+        Assert.Contains(holding.GetProperty("history").EnumerateArray(), e =>
+            e.GetProperty("kind").GetString() == "assignment-changed" &&
+            e.GetProperty("assignedTo").GetString() == user.FullName);
+
+        var unassigned = await (await client.PutAsJsonAsync(route, new { groupId = group, cph, userId = (Guid?)null })).ReadJsonAsync();
         Assert.Equal(System.Text.Json.JsonValueKind.Null, unassigned.GetProperty("assignedUserId").ValueKind);
         Assert.Equal(System.Text.Json.JsonValueKind.Null, unassigned.GetProperty("assignedTo").ValueKind);
         Assert.Equal(System.Text.Json.JsonValueKind.Null, unassigned.GetProperty("assignedUserFullName").ValueKind);
+        Assert.Equal(2, unassigned.GetProperty("version").GetInt32());
     }
 
     [Fact]

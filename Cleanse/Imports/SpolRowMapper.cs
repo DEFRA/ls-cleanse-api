@@ -77,6 +77,20 @@ public static class SpolRowMapper
             }
         }
 
+        var carriers = new HashSet<long>();
+        var conflicts = new List<AssigneeConflict>();
+        foreach (var holding in byKey.Values.Where(row => row.HasAssignee).GroupBy(row => row.Cph!.Trim(), StringComparer.Ordinal))
+        {
+            var winner = AssigneeOf(holding);
+            carriers.Add(winner.RowNumber);
+
+            var named = holding.Where(row => !string.IsNullOrWhiteSpace(row.AssignedTo)).ToList();
+            if (named.Select(row => NameKey(row.AssignedTo)).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+            {
+                conflicts.Add(new AssigneeConflict(winner, [.. named.Select(row => row.RowNumber).Order()]));
+            }
+        }
+
         var projected = byKey.Values
             .Select(row => new ExternalIssueRow
             {
@@ -84,7 +98,8 @@ public static class SpolRowMapper
                 IssueId = row.ToIssueId(),
                 WorkflowStatus = MapStatus(row.Status),
                 ExternalNotes = row.Notes,
-                HasAssignee = row.HasAssignee,
+                // Assignment belongs to the holding, so only one row per CPH carries it.
+                HasAssignee = row.HasAssignee && carriers.Contains(row.RowNumber),
                 AssignedTo = row.AssignedTo,
                 Priority = MapPriority(row.Priority),
                 ReceivedAtUtc = row.DateReceived,
@@ -92,8 +107,22 @@ public static class SpolRowMapper
             })
             .ToList();
 
-        return new SpolBatch(projected, invalid, collapsed, FindSuspectDates(byKey.Values));
+        return new SpolBatch(
+            projected, invalid, collapsed, FindSuspectDates(byKey.Values), [.. conflicts.OrderBy(c => c.Row.RowNumber)]);
     }
+
+    /// <summary>
+    /// The row whose assignee the holding takes. A name beats a blank, then a New or In progress
+    /// row beats a closed one, then the last row in the file wins.
+    /// </summary>
+    private static SpolRow AssigneeOf(IEnumerable<SpolRow> rows) => rows
+        .OrderByDescending(row => !string.IsNullOrWhiteSpace(row.AssignedTo))
+        .ThenByDescending(row => MapStatus(row.Status) is WorkflowStatus.Todo or WorkflowStatus.InProgress)
+        .ThenByDescending(row => row.RowNumber)
+        .First();
+
+    private static string NameKey(string? name) =>
+        string.Join(' ', (name ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>How far behind the newest received date a row may be before it is called out.</summary>
     private static readonly TimeSpan MaxReceivedAge = TimeSpan.FromDays(3 * 365);
@@ -151,6 +180,10 @@ public sealed record SpolBatch(
     IReadOnlyList<ExternalIssueRow> Rows,
     IReadOnlyList<SpolRow> Invalid,
     int DuplicatesCollapsed,
-    IReadOnlyList<SuspectDate> SuspectDates);
+    IReadOnlyList<SuspectDate> SuspectDates,
+    IReadOnlyList<AssigneeConflict> AssigneeConflicts);
 
 public sealed record SuspectDate(SpolRow Row, string Detail);
+
+/// <summary>A CPH whose rows name different people. <see cref="Row"/> is the one whose assignee was used.</summary>
+public sealed record AssigneeConflict(SpolRow Row, IReadOnlyList<long> NamingRows);

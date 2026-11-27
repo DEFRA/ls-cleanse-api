@@ -70,22 +70,23 @@ internal static class IssueFilterSql
                 NpgsqlDbType.Array | NpgsqlDbType.Text);
         }
 
+        // Assignment belongs to the holding: an issue matches through the holding its CPH names.
         if (filter.AssignedTo is { } assignee)
         {
-            Add($"LOWER({Db.Issue.AssignedTo}) = LOWER(@f_assignee)", "f_assignee", assignee);
+            Add(HoldingExists($"LOWER(h.{Db.Holding.AssignedTo}) = LOWER(@f_assignee)"), "f_assignee", assignee);
         }
 
         if (filter.AssignedUserId is { } userId)
         {
-            Add($"{Db.Issue.AssignedUserId} = @f_user", "f_user", userId, NpgsqlDbType.Uuid);
+            Add(HoldingExists($"h.{Db.Holding.AssignedUserId} = @f_user"), "f_user", userId, NpgsqlDbType.Uuid);
         }
 
         if (filter.Unassigned is { } unassigned)
         {
             parameters.Add(new NpgsqlParameter("f_whitespace", Whitespace));
-            predicates.Add(unassigned
-                ? $"({Db.Issue.AssignedUserId} IS NULL AND ({Db.Issue.AssignedTo} IS NULL OR BTRIM({Db.Issue.AssignedTo}, @f_whitespace) = ''))"
-                : $"({Db.Issue.AssignedUserId} IS NOT NULL OR BTRIM({Db.Issue.AssignedTo}, @f_whitespace) <> '')");
+            var assigned = HoldingExists(
+                $"(h.{Db.Holding.AssignedUserId} IS NOT NULL OR BTRIM(h.{Db.Holding.AssignedTo}, @f_whitespace) <> '')");
+            predicates.Add(unassigned ? $"NOT {assigned}" : assigned);
         }
 
         if (filter.CreatedAfterUtc is { } createdAfter)
@@ -127,7 +128,6 @@ internal static class IssueFilterSql
                 (
                     {Db.Issue.Id} ILIKE @f_term
                     OR {Db.Issue.Notes} ILIKE @f_term
-                    OR {Db.Issue.AssignedTo} ILIKE @f_term
                     OR EXISTS (
                         SELECT 1 FROM jsonb_each_text({Db.Issue.Context}) AS ctx(k, v)
                         WHERE ctx.v ILIKE @f_term
@@ -172,6 +172,16 @@ internal static class IssueFilterSql
             ? $"{Db.Issue.Id} {direction}"
             : $"{column} {direction}, {Db.Issue.Id} ASC";
     }
+
+    /// <summary>A predicate on the issue's holding row, found through its primary key.</summary>
+    private static string HoldingExists(string condition) => $"""
+        EXISTS (
+            SELECT 1 FROM {Db.Holdings} h
+            WHERE h.{Db.Holding.GroupId} = {Db.Issues}.{Db.Issue.GroupId}
+              AND h.{Db.Holding.Cph} = COALESCE({Db.Issues}.{Db.Issue.Context} ->> 'cph', '')
+              AND {condition}
+        )
+        """;
 
     /// <summary>LIKE wildcards inside a user's search term must match literally.</summary>
     private static string EscapeLike(string term)

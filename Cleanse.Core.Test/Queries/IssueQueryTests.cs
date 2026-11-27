@@ -1,4 +1,5 @@
 using Cleanse.Core.Abstractions;
+using Cleanse.Core.Commands.Holdings;
 using Cleanse.Core.Commands.Issues;
 using Cleanse.Core.Commands.Runs;
 using Cleanse.Core.Domain;
@@ -73,16 +74,35 @@ public class IssueQueryTests
     }
 
     [Fact]
-    public async Task Search_finds_the_unassigned_queue()
+    public async Task Search_finds_the_unassigned_queue_through_the_holding()
     {
         using var harness = await SeededHarnessAsync();
-        await harness.SendAsync(new AssignIssueCommand(TestData.Key("a"), "alice", TestData.Alice));
+        var alice = await harness.AddUserAsync("Alice Brown");
+        await harness.SendAsync(new AssignHoldingCommand(new HoldingKey(TestData.Group, "a"), alice.Id, TestData.Alice));
 
         var queue = await harness.QueryAsync(new SearchIssuesQuery(new IssueFilter { Unassigned = true }));
-        var mine = await harness.QueryAsync(new SearchIssuesQuery(new IssueFilter { AssignedTo = "alice" }));
+        var mine = await harness.QueryAsync(new SearchIssuesQuery(new IssueFilter { AssignedTo = "alice brown" }));
+        var byId = await harness.QueryAsync(new SearchIssuesQuery(new IssueFilter { AssignedUserId = alice.Id }));
 
         Assert.Equal(2, queue.TotalCount);
-        Assert.Equal(1, mine.TotalCount);
+        Assert.Equal(TestData.Key("a").Value, Assert.Single(mine.Items).Id);
+        Assert.Equal("Alice Brown", Assert.Single(byId.Items).AssignedTo);
+    }
+
+    [Fact]
+    public async Task An_issue_reports_its_holdings_assignee()
+    {
+        using var harness = await SeededHarnessAsync();
+        var alice = await harness.AddUserAsync("Alice Brown");
+        await harness.SendAsync(new AssignHoldingCommand(new HoldingKey(TestData.Group, "a"), alice.Id, TestData.Alice));
+
+        var issue = await harness.QueryAsync(new GetIssueQuery(TestData.Key("a")));
+        var other = await harness.QueryAsync(new GetIssueQuery(TestData.Key("b")));
+
+        Assert.Equal(alice.Id, issue.AssignedUserId);
+        Assert.Equal("Alice Brown", issue.AssignedUserFullName);
+        Assert.NotNull(issue.AssignmentDetachedAtUtc);
+        Assert.Null(other.AssignedUserId);
     }
 
     [Fact]

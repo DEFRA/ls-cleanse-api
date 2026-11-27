@@ -10,25 +10,22 @@ public static class WorkflowTransitions
     {
         [WorkflowStatus.Todo] =
         [
-            WorkflowStatus.InProgress, WorkflowStatus.Resolved, WorkflowStatus.Ignored,
-            WorkflowStatus.Suppressed, WorkflowStatus.Nonactionable
+            WorkflowStatus.InProgress, WorkflowStatus.Resolved, WorkflowStatus.Suppressed,
+            WorkflowStatus.Nonactionable
         ],
         [WorkflowStatus.InProgress] =
         [
-            WorkflowStatus.Todo, WorkflowStatus.Resolved, WorkflowStatus.Ignored,
-            WorkflowStatus.Suppressed, WorkflowStatus.Nonactionable
+            WorkflowStatus.Todo, WorkflowStatus.Resolved, WorkflowStatus.Suppressed,
+            WorkflowStatus.Nonactionable
         ],
         [WorkflowStatus.Suppressed] =
         [
-            WorkflowStatus.Todo, WorkflowStatus.InProgress, WorkflowStatus.Resolved, WorkflowStatus.Ignored
+            WorkflowStatus.Todo, WorkflowStatus.InProgress, WorkflowStatus.Resolved,
+            WorkflowStatus.Nonactionable
         ],
         [WorkflowStatus.Resolved] =
         [
-            WorkflowStatus.Todo, WorkflowStatus.InProgress, WorkflowStatus.Ignored
-        ],
-        [WorkflowStatus.Ignored] =
-        [
-            WorkflowStatus.Todo, WorkflowStatus.InProgress
+            WorkflowStatus.Todo, WorkflowStatus.InProgress, WorkflowStatus.Nonactionable
         ],
         [WorkflowStatus.Nonactionable] =
         [

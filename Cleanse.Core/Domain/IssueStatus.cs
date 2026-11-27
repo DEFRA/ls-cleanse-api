@@ -20,9 +20,11 @@ public enum WorkflowStatus
     InProgress,
     Suppressed,
     Resolved,
-    Ignored,
 
-    /// <summary>Terminal: looked at, and nothing can be done. Distinct from resolved.</summary>
+    /// <summary>
+    /// Terminal: looked at, and it can't be resolved. Shown as "Can't resolve". The former Ignored
+    /// status meant the same and was merged into this one.
+    /// </summary>
     Nonactionable
 }
 
@@ -43,7 +45,6 @@ public static class StatusNames
     public const string InProgress = "in-progress";
     public const string Suppressed = "suppressed";
     public const string Resolved = "resolved";
-    public const string Ignored = "ignored";
     public const string Nonactionable = "nonactionable";
 
     public const string Low = "low";
@@ -90,10 +91,24 @@ public static class StatusNames
         WorkflowStatus.InProgress => InProgress,
         WorkflowStatus.Suppressed => Suppressed,
         WorkflowStatus.Resolved => Resolved,
-        WorkflowStatus.Ignored => Ignored,
         WorkflowStatus.Nonactionable => Nonactionable,
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, null)
     };
+
+    /// <summary>How the front end names the status, for text Core writes into notes.</summary>
+    public static string ToLabel(this WorkflowStatus status) => status switch
+    {
+        WorkflowStatus.Todo => "To do",
+        WorkflowStatus.InProgress => "In progress",
+        WorkflowStatus.Suppressed => "Suppressed",
+        WorkflowStatus.Resolved => "Resolved",
+        WorkflowStatus.Nonactionable => "Can't resolve",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, null)
+    };
+
+    /// <summary>The statuses that close an issue with an outcome, and so can carry a reason.</summary>
+    public static bool IsOutcome(this WorkflowStatus status) =>
+        status is WorkflowStatus.Resolved or WorkflowStatus.Nonactionable;
 
     public static bool TryParseIssueStatus(string? value, out IssueStatus status)
     {
@@ -126,9 +141,6 @@ public static class StatusNames
                 return true;
             case Resolved:
                 status = WorkflowStatus.Resolved;
-                return true;
-            case Ignored:
-                status = WorkflowStatus.Ignored;
                 return true;
             case Nonactionable:
                 status = WorkflowStatus.Nonactionable;

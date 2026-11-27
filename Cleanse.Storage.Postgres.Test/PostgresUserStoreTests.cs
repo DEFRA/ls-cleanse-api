@@ -13,6 +13,7 @@ public sealed class PostgresUserStoreTests(PostgresFixture fixture) : UserStoreC
     protected override IIssueStore CreateIssueStore() =>
         new PostgresIssueStore(_harness.NewContext(), CleansePostgresOptions.ForExistingDataSource(3));
     protected override IDataResetStore CreateResetStore() => new PostgresDataResetStore(_harness.NewContext());
+    protected override IHoldingStore CreateHoldingStore() => new PostgresHoldingStore(_harness.NewContext());
     public ValueTask InitializeAsync() => _harness.InitializeAsync();
     public ValueTask DisposeAsync() => _harness.DisposeAsync();
 }

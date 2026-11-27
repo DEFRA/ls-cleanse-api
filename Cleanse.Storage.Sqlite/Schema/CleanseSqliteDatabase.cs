@@ -42,12 +42,120 @@ public sealed class CleanseSqliteDatabase : IAsyncDisposable
         }
 
         await using var connection = await OpenAsync(cancellationToken);
+
+        // Asked before the schema script runs, because the script creates the table.
+        var upgradingToHoldings =
+            await TableExistsAsync(connection, "issues", cancellationToken) &&
+            !await TableExistsAsync(connection, "holdings", cancellationToken);
+
         await using var command = connection.CreateCommand();
         command.CommandText = ReadSchemaScript();
         await command.ExecuteNonQueryAsync(cancellationToken);
         await UpgradeUserAssignmentAsync(connection, cancellationToken);
         await UpgradeImportScopeAsync(connection, cancellationToken);
         await UpgradeUsersAsync(connection, cancellationToken);
+        await UpgradeHoldingWorkflowAsync(connection, upgradingToHoldings, cancellationToken);
+    }
+
+    private static async Task<bool> TableExistsAsync(
+        SqliteConnection connection, string table, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $name";
+        command.Parameters.AddWithValue("$name", table);
+        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) > 0;
+    }
+
+    private static async Task<HashSet<string>> ColumnsAsync(
+        SqliteConnection connection, SqliteTransaction? transaction, string table, CancellationToken cancellationToken)
+    {
+        var columns = new HashSet<string>(StringComparer.Ordinal);
+        await using var inspect = connection.CreateCommand();
+        inspect.Transaction = transaction;
+        inspect.CommandText = $"PRAGMA table_info({table})";
+        await using var reader = await inspect.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            columns.Add(reader.GetString(1));
+        }
+
+        return columns;
+    }
+
+    /// <summary>
+    /// Brings an older database up to the holding workflow, mirroring the HoldingWorkflow
+    /// migration: Ignored becomes Can't resolve, and each holding takes one assignee from its
+    /// issues. That copy runs once, when the holdings table is new.
+    /// </summary>
+    private static async Task UpgradeHoldingWorkflowAsync(
+        SqliteConnection connection, bool copyAssignments, CancellationToken cancellationToken)
+    {
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        var issueColumns = await ColumnsAsync(connection, transaction, "issues", cancellationToken);
+        foreach (var (name, definition) in new[]
+        {
+            ("outcome_reason_id", "TEXT NULL REFERENCES coded_values(id) ON DELETE RESTRICT"),
+            ("outcome_reason", "TEXT NULL")
+        })
+        {
+            if (!issueColumns.Contains(name))
+            {
+                await ExecuteAsync(connection, transaction, $"ALTER TABLE issues ADD COLUMN {name} {definition}", cancellationToken);
+            }
+        }
+
+        if (!(await ColumnsAsync(connection, transaction, "audit_entries", cancellationToken)).Contains("subject"))
+        {
+            await ExecuteAsync(connection, transaction, "ALTER TABLE audit_entries ADD COLUMN subject TEXT NULL", cancellationToken);
+        }
+
+        await ExecuteAsync(connection, transaction, """
+            CREATE INDEX IF NOT EXISTS ix_audit_entries_subject
+                ON audit_entries (subject, at_utc DESC, sequence DESC) WHERE subject IS NOT NULL;
+            UPDATE issues SET workflow_status = 'nonactionable' WHERE workflow_status = 'ignored';
+            """, cancellationToken);
+
+        if (copyAssignments)
+        {
+            // One made in Cleanse beats one from SPOL, then an open issue's beats a closed one's,
+            // then the most recently assigned.
+            await using var copy = connection.CreateCommand();
+            copy.Transaction = transaction;
+            copy.CommandText = """
+                INSERT INTO holdings (
+                    group_id, cph, assigned_to, assigned_user_id, assigned_user_full_name,
+                    assignment_detached_at_utc, created_at_utc, updated_at_utc, version)
+                SELECT group_id, cph, assigned_to, assigned_user_id, assigned_user_full_name,
+                       assignment_detached_at_utc, $now, $now, 1
+                FROM (
+                    SELECT i.group_id,
+                           COALESCE(json_extract(i.context, '$.cph'), '') AS cph,
+                           NULLIF(TRIM(i.assigned_to), '') AS assigned_to,
+                           i.assigned_user_id,
+                           i.assigned_user_full_name,
+                           i.assignment_detached_at_utc,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY i.group_id, COALESCE(json_extract(i.context, '$.cph'), '')
+                               ORDER BY (i.assignment_detached_at_utc IS NOT NULL) DESC,
+                                        (i.status = 'active' AND i.workflow_status IN ('todo', 'in-progress')) DESC,
+                                        COALESCE(
+                                            (SELECT MAX(a.at_utc) FROM audit_entries a
+                                             WHERE a.issue_id = i.id AND a.kind = 'IssueAssigned'),
+                                            i.updated_at_utc) DESC,
+                                        i.id
+                           ) AS place
+                    FROM issues i
+                    WHERE TRIM(COALESCE(json_extract(i.context, '$.cph'), '')) <> ''
+                      AND (i.assigned_user_id IS NOT NULL OR TRIM(COALESCE(i.assigned_to, '')) <> '')
+                )
+                WHERE place = 1
+                """;
+            copy.Parameters.AddWithValue("$now", SqliteMappings.ToText(DateTimeOffset.UtcNow));
+            await copy.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     /// <summary>

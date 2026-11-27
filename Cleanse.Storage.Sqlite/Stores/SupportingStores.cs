@@ -8,11 +8,11 @@ namespace Cleanse.Storage.Sqlite.Stores;
 internal sealed class SqliteAuditStore(CleanseSqliteDatabase database) : IAuditStore
 {
     private const string Columns =
-        "id, issue_id, run_id, kind, actor_id, actor_display_name, actor_kind, at_utc, changes";
+        "id, issue_id, run_id, kind, actor_id, actor_display_name, actor_kind, at_utc, changes, subject";
 
     private const string Insert = $"""
         INSERT INTO audit_entries ({Columns})
-        VALUES ($id, $issue_id, $run_id, $kind, $actor_id, $actor_display_name, $actor_kind, $at_utc, $changes)
+        VALUES ($id, $issue_id, $run_id, $kind, $actor_id, $actor_display_name, $actor_kind, $at_utc, $changes, $subject)
         """;
 
     public async Task AppendAsync(AuditEntry entry, CancellationToken cancellationToken = default)
@@ -67,6 +67,15 @@ internal sealed class SqliteAuditStore(CleanseSqliteDatabase database) : IAuditS
         return PageAsync("run_id = $key", runId, page, cancellationToken);
     }
 
+    public Task<PagedResult<AuditEntry>> GetForSubjectAsync(
+        string subject,
+        PageRequest page,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        return PageAsync("subject = $key", subject, page, cancellationToken);
+    }
+
     private async Task<PagedResult<AuditEntry>> PageAsync(
         string predicate,
         string key,
@@ -106,7 +115,8 @@ internal sealed class SqliteAuditStore(CleanseSqliteDatabase database) : IAuditS
                 Enum.Parse<AuditEventKind>(reader.GetString(3)),
                 SqliteMappings.RebuildActor(reader.GetString(4), reader.GetString(5), reader.GetString(6)),
                 SqliteMappings.ToTimestamp(reader.GetString(7)),
-                SqliteMappings.DeserialiseChanges(reader.GetString(8))));
+                SqliteMappings.DeserialiseChanges(reader.GetString(8)),
+                reader.IsDBNull(9) ? null : reader.GetString(9)));
         }
 
         return new PagedResult<AuditEntry>(items, page.PageNumber, page.PageSize, total);
@@ -123,6 +133,7 @@ internal sealed class SqliteAuditStore(CleanseSqliteDatabase database) : IAuditS
         command.Bind("$actor_kind", entry.Actor.Kind.ToString());
         command.Bind("$at_utc", entry.AtUtc.ToText());
         command.Bind("$changes", SqliteMappings.SerialiseChanges(entry.Changes));
+        command.Bind("$subject", entry.Subject);
     }
 }
 

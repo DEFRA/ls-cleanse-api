@@ -6,14 +6,18 @@ namespace Cleanse.Core.Contracts;
 
 internal static class DtoMappings
 {
-    public static IssueDto ToDto(this Issue issue) => new(
+    /// <summary>
+    /// The issue as the API reports it: with its holding's assignment, which is the only one that
+    /// counts now. Pass null for an issue whose holding has nothing recorded.
+    /// </summary>
+    public static IssueDto ToDto(this Issue issue, Holding? holding) => new(
         issue.Id.Value,
         issue.GroupId,
         issue.RuleId,
         issue.RunId,
         issue.Status.ToWire(),
         issue.WorkflowStatus.ToWire(),
-        issue.AssignedTo,
+        holding?.AssignedTo,
         issue.Notes,
         issue.ExternalNotes,
         issue.Priority?.ToWire(),
@@ -25,9 +29,37 @@ internal static class DtoMappings
         issue.ActivatedAtUtc,
         issue.DeactivatedAtUtc,
         issue.Version,
-        issue.AssignedUserId,
-        issue.AssignedUserFullName,
-        issue.AssignmentDetachedAtUtc);
+        holding?.AssignedUserId,
+        holding?.AssignedUserFullName,
+        holding?.AssignmentDetachedAtUtc,
+        issue.OutcomeReasonId,
+        issue.OutcomeReasonName);
+
+    public static HoldingDto ToDto(this Holding holding) => new(
+        holding.Key.GroupId,
+        holding.Key.Cph,
+        holding.AssignedTo,
+        holding.AssignedUserId,
+        holding.AssignedUserFullName,
+        holding.AssignmentDetachedAtUtc,
+        holding.Version);
+
+    public static HoldingNoteDto ToDto(this HoldingNote note) => new(
+        note.Id,
+        note.Text,
+        note.Context,
+        null,
+        note.CreatedAtUtc,
+        note.CreatedBy.Id,
+        note.CreatedBy.DisplayName);
+
+    public static CodedValueDto ToDto(this CodedValue value) => new(
+        value.Id,
+        value.List.ToWire(),
+        value.Name,
+        value.IsActive,
+        value.CreatedAtUtc,
+        value.UpdatedAtUtc);
 
     public static RuleRunDto ToDto(this RuleRun run, DateTimeOffset now) => new(
         run.RunId,

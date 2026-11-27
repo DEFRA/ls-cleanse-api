@@ -1,4 +1,5 @@
 using Cleanse.Core.Abstractions;
+using Cleanse.Core.Domain;
 
 namespace Cleanse.Storage.InMemory;
 
@@ -13,7 +14,9 @@ public sealed class InMemoryDataResetStore(
     InMemoryIssueHistoryStore history,
     InMemoryAuditStore audit,
     InMemoryRuleRunStore runs,
-    InMemoryImportJobStore imports) : IDataResetStore
+    InMemoryImportJobStore imports,
+    InMemoryHoldingStore holdings,
+    InMemoryHoldingActivityStore activity) : IDataResetStore
 {
     private DataResetRecord? _lastReset;
 
@@ -32,13 +35,17 @@ public sealed class InMemoryDataResetStore(
         var historyRemoved = history.Clear(groupId is null ? null : issueIds);
         var auditRemoved = audit.Clear(
             groupId is null ? null : issueIds,
-            groupId is null ? null : runIds);
+            groupId is null ? null : runIds,
+            groupId is null ? null : AuditSubjects.HoldingsInGroup(groupId));
         var (jobs, rejections) = imports.Clear(groupId);
+        var holdingsRemoved = holdings.Clear(groupId);
+        var (notes, actions) = activity.Clear(groupId);
 
         _lastReset = new DataResetRecord(at, groupId ?? "all", actorId, issueIds.Count);
 
         return Task.FromResult(new ResetCounts(
-            issueIds.Count, historyRemoved, auditRemoved, runIds.Count, jobs, rejections));
+            issueIds.Count, historyRemoved, auditRemoved, runIds.Count, jobs, rejections,
+            holdingsRemoved, notes, actions));
     }
 
     public Task<DataResetRecord?> GetLastResetAsync(CancellationToken cancellationToken = default)

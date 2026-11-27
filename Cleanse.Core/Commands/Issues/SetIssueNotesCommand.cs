@@ -4,30 +4,6 @@ using Cleanse.Core.Domain;
 
 namespace Cleanse.Core.Commands.Issues;
 
-/// <summary>Assigns, or with a null <see cref="AssignTo"/>, unassigns.</summary>
-public sealed record AssignIssueCommand(
-    IssueId IssueId,
-    string? AssignTo,
-    Actor Actor,
-    int? ExpectedVersion = null) : ICommand<IssueDto>;
-
-internal sealed class AssignIssueCommandHandler(IssueMutator mutator)
-    : ICommandHandler<AssignIssueCommand, IssueDto>
-{
-    public Task<Result<IssueDto>> HandleAsync(
-        AssignIssueCommand command,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(command);
-        return mutator.MutateAsync(
-            command.IssueId,
-            command.ExpectedVersion,
-            command.Actor,
-            (issue, now) => issue.AssignTo(command.AssignTo, now),
-            cancellationToken);
-    }
-}
-
 public sealed record SetIssueNotesCommand(
     IssueId IssueId,
     string? Notes,

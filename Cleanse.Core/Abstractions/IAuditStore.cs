@@ -18,9 +18,18 @@ public interface IAuditStore
         string runId,
         PageRequest page,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Entries about a subject other than an issue or a run. See <see cref="AuditSubjects"/>.</summary>
+    Task<PagedResult<AuditEntry>> GetForSubjectAsync(
+        string subject,
+        PageRequest page,
+        CancellationToken cancellationToken = default);
 }
 
-/// <summary>Append-only log of human case actions against an issue.</summary>
+/// <summary>
+/// Append-only log of human case actions against an issue, from before notes and actions moved
+/// to the holding. Still written by the SPOL import's contact dates.
+/// </summary>
 public interface IIssueHistoryStore
 {
     Task AddAsync(IssueHistoryEntry entry, CancellationToken cancellationToken = default);

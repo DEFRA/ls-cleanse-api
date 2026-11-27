@@ -1,4 +1,5 @@
 using Cleanse.Core.Abstractions;
+using Cleanse.Core.Commands.Holdings;
 using Cleanse.Core.Commands.Issues;
 using Cleanse.Core.Commands.Runs;
 using Cleanse.Core.Domain;
@@ -15,7 +16,7 @@ namespace Cleanse.Core.Test.Scenarios;
 /// </summary>
 public class NightlyRunScenarioTests
 {
-    private static readonly Holding[] Source =
+    private static readonly SourceHolding[] Source =
     [
         new("12/345/0001", "J Smith"),
         new("12/345/0002", "A Jones"),
@@ -23,7 +24,7 @@ public class NightlyRunScenarioTests
         new("12/345/0004", "R Singh")
     ];
 
-    private static ICleanseRule[] RulesAgainst(params Holding[] target) =>
+    private static ICleanseRule[] RulesAgainst(params SourceHolding[] target) =>
         [new HoldingMissingInTargetRule(Source, target), new KeeperMismatchRule(Source, target)];
 
     private static async Task<string[]> ActiveIdsAsync(CleanseHarness harness)
@@ -85,7 +86,8 @@ public class NightlyRunScenarioTests
 
         // A caseworker decides the discrepancy is dealt with.
         harness.Clock.Advance(TimeSpan.FromHours(9));
-        await harness.SendAsync(new AssignIssueCommand(id, "alice", TestData.Alice));
+        var alice = await harness.AddUserAsync("Alice Brown");
+        await harness.SendAsync(new AssignHoldingCommand(new HoldingKey(TestData.Group, "12/345/0002"), alice.Id, TestData.Alice));
         await harness.SendAsync(new SetIssueWorkflowStatusCommand(id, WorkflowStatus.Resolved, TestData.Alice));
 
         // It genuinely disappears for a night, then comes back.
@@ -99,18 +101,20 @@ public class NightlyRunScenarioTests
         var issue = await harness.QueryAsync(new GetIssueQuery(id));
         Assert.Equal("active", issue.Status);
         Assert.Equal("resolved", issue.WorkflowStatus);
-        Assert.Equal("alice", issue.AssignedTo);
+        Assert.Equal("Alice Brown", issue.AssignedTo);
     }
 
     [Fact]
-    public async Task An_ignored_issue_is_never_re_opened_by_the_engine()
+    public async Task An_issue_that_cant_be_resolved_is_never_re_opened_by_the_engine()
     {
         using var harness = new CleanseHarness();
         var engine = new FakeRulesEngine(harness.Dispatcher, TestData.Group);
         var id = TestData.Key("12/345/0002");
+        var reason = await harness.AddCodedValueAsync(CodedList.CantResolveReason, "Keeper has died");
 
         await engine.RunAsync(RulesAgainst(Source[0]));
-        await harness.SendAsync(new SetIssueWorkflowStatusCommand(id, WorkflowStatus.Ignored, TestData.Alice));
+        await harness.SendAsync(new SetIssueWorkflowStatusCommand(
+            id, WorkflowStatus.Nonactionable, TestData.Alice, ReasonId: reason));
 
         for (var night = 0; night < 3; night++)
         {
@@ -118,7 +122,9 @@ public class NightlyRunScenarioTests
             await engine.RunAsync(RulesAgainst(Source[0]));
         }
 
-        Assert.Equal("ignored", (await harness.QueryAsync(new GetIssueQuery(id))).WorkflowStatus);
+        var issue = await harness.QueryAsync(new GetIssueQuery(id));
+        Assert.Equal("nonactionable", issue.WorkflowStatus);
+        Assert.Equal("Keeper has died", issue.OutcomeReason);
     }
 
     [Fact]
@@ -197,7 +203,7 @@ public class NightlyRunScenarioTests
         var engine = new FakeRulesEngine(harness.Dispatcher, TestData.Group);
 
         // 0001 exists but with the wrong keeper; 0002-0004 are missing entirely.
-        await engine.RunAsync(RulesAgainst(new Holding("12/345/0001", "WRONG NAME")));
+        await engine.RunAsync(RulesAgainst(new SourceHolding("12/345/0001", "WRONG NAME")));
 
         var mismatch = await harness.QueryAsync(new GetIssueQuery(
             TestData.Key("12/345/0001", TestData.Rule5)));

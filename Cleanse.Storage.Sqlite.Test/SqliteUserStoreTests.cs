@@ -10,5 +10,6 @@ public sealed class SqliteUserStoreTests : UserStoreContractTests, IAsyncDisposa
     protected override IUserStore CreateStore() => new SqliteUserStore(_harness.Database);
     protected override IIssueStore CreateIssueStore() => _harness.Issues;
     protected override IDataResetStore CreateResetStore() => _harness.Reset;
+    protected override IHoldingStore CreateHoldingStore() => _harness.Holdings;
     public ValueTask DisposeAsync() => _harness.DisposeAsync();
 }

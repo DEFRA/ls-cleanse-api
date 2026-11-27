@@ -18,8 +18,11 @@ public sealed class ImportAssignmentTests
         Tenant, Guid.NewGuid().ToString(), Client, name, TestData.Night1, TestData.Night1);
 
     private static ApplyImportBatchCommandHandler Handler(
-        IImportJobStore imports, IIssueStore issues, IUserStore users) =>
-        new(imports, issues, new InMemoryIssueHistoryStore(), new InMemoryAuditStore(), users, TimeProvider.System);
+        IImportJobStore imports, IIssueStore issues, IUserStore users, IHoldingStore? holdings = null, IAuditStore? audit = null) =>
+        new(imports, issues, holdings ?? new InMemoryHoldingStore(), new InMemoryIssueHistoryStore(),
+            audit ?? new InMemoryAuditStore(), users, TimeProvider.System);
+
+    private static HoldingKey KeyOf(Issue issue) => HoldingKey.For(issue)!.Value;
 
     private static ExternalIssueRow Row(Issue issue, string? assignedTo) =>
         new() { RowNumber = 2, IssueId = issue.Id, HasAssignee = true, AssignedTo = assignedTo };
@@ -40,21 +43,22 @@ public sealed class ImportAssignmentTests
         await users.UpsertLoginAsync(Login(" "), []);
         var imports = new InMemoryImportJobStore();
         var issues = new InMemoryIssueStore();
+        var holdings = new InMemoryHoldingStore();
         var issue = TestData.NewIssue("match");
         await issues.SaveAsync(issue, null);
         var job = await JobAsync(imports);
-        var handler = new ApplyImportBatchCommandHandler(imports, issues, new InMemoryIssueHistoryStore(),
-            new InMemoryAuditStore(), users, TimeProvider.System);
+        var handler = Handler(imports, issues, users, holdings);
         var row = new ExternalIssueRow { RowNumber = 2, IssueId = issue.Id, HasAssignee = true, AssignedTo = " aLeX eXaMpLe " };
 
         Assert.True((await handler.HandleAsync(new ApplyImportBatchCommand(job.Id, [row], Actor.System))).IsSuccess);
-        Assert.Equal(known.Id, (await issues.GetAsync(issue.Id))!.AssignedUserId);
+        Assert.Equal(known.Id, (await holdings.GetAsync(KeyOf(issue)))!.AssignedUserId);
         Assert.True((await handler.HandleAsync(new ApplyImportBatchCommand(job.Id,
             [row with { AssignedTo = "Alex" }], Actor.System))).IsSuccess);
-        var updated = (await issues.GetAsync(issue.Id))!;
+        var updated = (await holdings.GetAsync(KeyOf(issue)))!;
         Assert.Null(updated.AssignedUserId);
         Assert.Null(updated.AssignedUserFullName);
         Assert.Equal("Alex", updated.AssignedTo);
+        Assert.Null(updated.AssignmentDetachedAtUtc);
         Assert.Equal(ImportRejectionReasons.AssigneeUnmatched,
             Assert.Single((await imports.GetRejectionsAsync(job.Id, PageRequest.Default)).Items).Reason);
     }
@@ -74,11 +78,11 @@ public sealed class ImportAssignmentTests
         await users.UpsertLoginAsync(Login("Z Match") with { Id = Guid.Parse("ffffffff-ffff-ffff-ffff-ffffffffffff") }, []);
         var imports = new InMemoryImportJobStore();
         var issues = new InMemoryIssueStore();
+        var holdings = new InMemoryHoldingStore();
         var issue = TestData.NewIssue("collision");
         await issues.SaveAsync(issue, null);
         var job = await JobAsync(imports);
-        var handler = new ApplyImportBatchCommandHandler(imports, issues, new InMemoryIssueHistoryStore(),
-            new InMemoryAuditStore(), users, TimeProvider.System);
+        var handler = Handler(imports, issues, users, holdings);
 
         var result = await handler.HandleAsync(new ApplyImportBatchCommand(job.Id,
             [new ExternalIssueRow { RowNumber = 2, IssueId = issue.Id, HasAssignee = true, AssignedTo = "z MATCH" }],
@@ -87,7 +91,7 @@ public sealed class ImportAssignmentTests
         Assert.True(result.IsSuccess);
         Assert.Equal(1, result.Value.Matched);
         Assert.Equal(0, result.Value.Unmatched);
-        var updated = (await issues.GetAsync(issue.Id))!;
+        var updated = (await holdings.GetAsync(KeyOf(issue)))!;
         Assert.Null(updated.AssignedUserId);
         Assert.Equal("z MATCH", updated.AssignedTo);
         Assert.Equal(ImportRejectionReasons.AssigneeAmbiguous,
@@ -105,17 +109,22 @@ public sealed class ImportAssignmentTests
             .Returns(new[] { issue });
         issues.SaveAsync(Arg.Any<Issue>(), issue.Version, Arg.Any<CancellationToken>()).Returns(false);
         var audit = new InMemoryAuditStore();
-        var handler = new ApplyImportBatchCommandHandler(imports, issues, new InMemoryIssueHistoryStore(),
-            audit, new InMemoryUserStore(), TimeProvider.System);
+        var holdings = new InMemoryHoldingStore();
+        var handler = Handler(imports, issues, new InMemoryUserStore(), holdings, audit);
 
         var result = await handler.HandleAsync(new ApplyImportBatchCommand(job.Id,
-            [new ExternalIssueRow { RowNumber = 2, IssueId = issue.Id, HasAssignee = true, AssignedTo = "Legacy" }],
-            Actor.System));
+        [
+            new ExternalIssueRow
+            {
+                RowNumber = 2, IssueId = issue.Id, HasAssignee = true, AssignedTo = "Legacy", ExternalNotes = "From SPOL"
+            }
+        ], Actor.System));
 
         Assert.True(result.IsFailure);
         Assert.Equal(ErrorCodes.IssueConcurrencyConflict, result.Error.Code);
         await issues.DidNotReceive().SaveBatchAsync(Arg.Any<IReadOnlyCollection<Issue>>(), Arg.Any<CancellationToken>());
         Assert.Empty((await audit.GetForIssueAsync(issue.Id, PageRequest.Default)).Items);
+        Assert.Null(await holdings.GetAsync(KeyOf(issue)));
         Assert.Equal(0, (await imports.GetAsync(job.Id))!.Counters.ProcessedRows);
     }
 
@@ -126,19 +135,26 @@ public sealed class ImportAssignmentTests
         var registered = (await users.RegisterAsync([KnownUser.Unclaimed("kyle.lloyd2@apha.gov.uk", "Kyle Lloyd")]))[0].User;
         var imports = new InMemoryImportJobStore();
         var issues = new InMemoryIssueStore();
+        var holdings = new InMemoryHoldingStore();
+        var audit = new InMemoryAuditStore();
         var issue = TestData.NewIssue("email");
         await issues.SaveAsync(issue, null);
         var job = await JobAsync(imports);
 
-        Assert.True((await Handler(imports, issues, users).HandleAsync(new ApplyImportBatchCommand(job.Id,
+        Assert.True((await Handler(imports, issues, users, holdings, audit).HandleAsync(new ApplyImportBatchCommand(job.Id,
             [Row(issue, " Kyle.Lloyd2@APHA.gov.uk ")], Actor.System))).IsSuccess);
 
-        var updated = (await issues.GetAsync(issue.Id))!;
+        var updated = (await holdings.GetAsync(KeyOf(issue)))!;
         Assert.Equal(registered.Id, updated.AssignedUserId);
         Assert.Equal("Kyle Lloyd", updated.AssignedTo);
         Assert.Null(updated.AssignmentDetachedAtUtc);
         Assert.Equal(1, (await users.SearchAsync(PageRequest.Default)).TotalCount);
         Assert.Empty((await imports.GetRejectionsAsync(job.Id, PageRequest.Default)).Items);
+
+        // Audited against the holding, and attributed to the import run.
+        var entry = Assert.Single((await audit.GetForSubjectAsync(AuditSubjects.Holding(KeyOf(issue)), PageRequest.Default)).Items);
+        Assert.Equal(AuditEventKind.HoldingAssigned, entry.Kind);
+        Assert.Equal(job.Id.ToString(), entry.RunId);
     }
 
     [Fact]
@@ -147,12 +163,13 @@ public sealed class ImportAssignmentTests
         var users = new InMemoryUserStore();
         var imports = new InMemoryImportJobStore();
         var issues = new InMemoryIssueStore();
+        var holdings = new InMemoryHoldingStore();
         var first = TestData.NewIssue("new-user-1");
         var second = TestData.NewIssue("new-user-2");
         await issues.SaveBatchAsync([first, second]);
         var job = await JobAsync(imports);
 
-        Assert.True((await Handler(imports, issues, users).HandleAsync(new ApplyImportBatchCommand(job.Id,
+        Assert.True((await Handler(imports, issues, users, holdings).HandleAsync(new ApplyImportBatchCommand(job.Id,
             [Row(first, "StJohn.Hawkins1@defra.gov.uk"), Row(second, "stjohn.hawkins1@defra.gov.uk") with { RowNumber = 3 }],
             Actor.System))).IsSuccess);
 
@@ -160,8 +177,8 @@ public sealed class ImportAssignmentTests
         Assert.Equal("StJohn Hawkins", created.FullName);
         Assert.Equal("stjohn.hawkins1@defra.gov.uk", created.Email);
         Assert.Null(created.Subject);
-        Assert.Equal(created.Id, (await issues.GetAsync(first.Id))!.AssignedUserId);
-        Assert.Equal(created.Id, (await issues.GetAsync(second.Id))!.AssignedUserId);
+        Assert.Equal(created.Id, (await holdings.GetAsync(KeyOf(first)))!.AssignedUserId);
+        Assert.Equal(created.Id, (await holdings.GetAsync(KeyOf(second)))!.AssignedUserId);
     }
 
     [Fact]
@@ -169,47 +186,77 @@ public sealed class ImportAssignmentTests
     {
         var users = new InMemoryUserStore();
         var chosen = await users.UpsertLoginAsync(Login("Chosen Person"), []);
+        var someone = await users.UpsertLoginAsync(Login("Someone"), []);
         var imports = new InMemoryImportJobStore();
         var issues = new InMemoryIssueStore();
+        var holdings = new InMemoryHoldingStore();
         var detached = TestData.NewIssue("detached");
-        detached.AssignKnownUser(chosen, TestData.Night1);
         var unassigned = TestData.NewIssue("unassigned-in-cleanse");
-        unassigned.AssignTo("Someone", TestData.Night1);
-        unassigned.AssignTo(null, TestData.Night1);
         var attached = TestData.NewIssue("attached");
         await issues.SaveBatchAsync([detached, unassigned, attached]);
+
+        var detachedHolding = Holding.New(KeyOf(detached), TestData.Night1);
+        detachedHolding.AssignKnownUser(chosen, TestData.Night1);
+        Assert.True(await holdings.SaveAsync(detachedHolding, 0));
+        var unassignedHolding = Holding.New(KeyOf(unassigned), TestData.Night1);
+        unassignedHolding.AssignKnownUser(someone, TestData.Night1);
+        unassignedHolding.AssignKnownUser(null, TestData.Night1);
+        Assert.True(await holdings.SaveAsync(unassignedHolding, 0));
         var job = await JobAsync(imports);
 
-        Assert.True((await Handler(imports, issues, users).HandleAsync(new ApplyImportBatchCommand(job.Id,
+        Assert.True((await Handler(imports, issues, users, holdings).HandleAsync(new ApplyImportBatchCommand(job.Id,
         [
             Row(detached, "new.person@apha.gov.uk"),
             Row(unassigned, "Unknown Name") with { RowNumber = 3 },
             Row(attached, "Chosen Person") with { RowNumber = 4 }
         ], Actor.System))).IsSuccess);
 
-        Assert.Equal(chosen.Id, (await issues.GetAsync(detached.Id))!.AssignedUserId);
-        var stillUnassigned = (await issues.GetAsync(unassigned.Id))!;
+        Assert.Equal(chosen.Id, (await holdings.GetAsync(KeyOf(detached)))!.AssignedUserId);
+        var stillUnassigned = (await holdings.GetAsync(KeyOf(unassigned)))!;
         Assert.Null(stillUnassigned.AssignedTo);
         Assert.Null(stillUnassigned.AssignedUserId);
-        Assert.Equal(chosen.Id, (await issues.GetAsync(attached.Id))!.AssignedUserId);
-        Assert.Equal(1, (await users.SearchAsync(PageRequest.Default)).TotalCount);
+        Assert.Equal(chosen.Id, (await holdings.GetAsync(KeyOf(attached)))!.AssignedUserId);
+        Assert.Equal(2, (await users.SearchAsync(PageRequest.Default)).TotalCount);
         Assert.Empty((await imports.GetRejectionsAsync(job.Id, PageRequest.Default)).Items);
     }
 
     [Fact]
-    public async Task A_blank_assignee_unassigns_an_issue_SPOL_still_owns()
+    public async Task A_blank_assignee_unassigns_a_holding_SPOL_still_owns()
     {
         var users = new InMemoryUserStore();
         var imports = new InMemoryImportJobStore();
         var issues = new InMemoryIssueStore();
+        var holdings = new InMemoryHoldingStore();
         var issue = TestData.NewIssue("blank");
-        issue.SyncAssignment(null, "Former Assignee", TestData.Night1);
         await issues.SaveAsync(issue, null);
+        var holding = Holding.New(KeyOf(issue), TestData.Night1);
+        holding.SyncAssignment(null, "Former Assignee", TestData.Night1);
+        Assert.True(await holdings.SaveAsync(holding, 0));
         var job = await JobAsync(imports);
 
-        Assert.True((await Handler(imports, issues, users).HandleAsync(new ApplyImportBatchCommand(job.Id,
+        Assert.True((await Handler(imports, issues, users, holdings).HandleAsync(new ApplyImportBatchCommand(job.Id,
             [Row(issue, "  ")], Actor.System))).IsSuccess);
 
-        Assert.Null((await issues.GetAsync(issue.Id))!.AssignedTo);
+        Assert.Null((await holdings.GetAsync(KeyOf(issue)))!.AssignedTo);
+    }
+
+    [Fact]
+    public async Task A_row_without_the_assignee_leaves_the_holding_alone()
+    {
+        var users = new InMemoryUserStore();
+        var imports = new InMemoryImportJobStore();
+        var issues = new InMemoryIssueStore();
+        var holdings = new InMemoryHoldingStore();
+        var issue = TestData.NewIssue("carried-elsewhere");
+        await issues.SaveAsync(issue, null);
+        var holding = Holding.New(KeyOf(issue), TestData.Night1);
+        holding.SyncAssignment(null, "Kept", TestData.Night1);
+        Assert.True(await holdings.SaveAsync(holding, 0));
+        var job = await JobAsync(imports);
+
+        Assert.True((await Handler(imports, issues, users, holdings).HandleAsync(new ApplyImportBatchCommand(job.Id,
+            [Row(issue, "Someone Else") with { HasAssignee = false }], Actor.System))).IsSuccess);
+
+        Assert.Equal("Kept", (await holdings.GetAsync(KeyOf(issue)))!.AssignedTo);
     }
 }

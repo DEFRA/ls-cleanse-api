@@ -107,6 +107,7 @@ public sealed class ImportProcessorService(
 
         await RecordUnkeyedRowsAsync(imports, job, batch, cancellationToken);
         await RecordSuspectDatesAsync(imports, job, batch, cancellationToken);
+        await RecordAssigneeConflictsAsync(imports, job, batch, cancellationToken);
 
         foreach (var chunk in batch.Rows.Chunk(options.BatchSize))
         {
@@ -122,6 +123,39 @@ public sealed class ImportProcessorService(
                     $"Applying a batch of {chunk.Length} rows failed: {result.Error}");
             }
         }
+    }
+
+    /// <summary>
+    /// Warnings only: a holding takes one assignee, so where a CPH's rows disagree one of them was
+    /// chosen, and the team should check it.
+    /// </summary>
+    private async Task RecordAssigneeConflictsAsync(
+        IImportJobStore imports,
+        ImportJob job,
+        SpolBatch batch,
+        CancellationToken cancellationToken)
+    {
+        if (batch.AssigneeConflicts.Count == 0)
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "Import {ImportJobId} has {Count} CPH(s) whose rows name different assignees.",
+            job.Id, batch.AssigneeConflicts.Count);
+
+        var rejections = batch.AssigneeConflicts
+            .Take(options.MaxRejectionsRecorded)
+            .Select(c => new ImportJobRejection(
+                job.Id,
+                c.Row.RowNumber,
+                c.Row.ToIssueId().Value,
+                ImportRejectionReasons.AssigneeConflict,
+                $"Rows {string.Join(", ", c.NamingRows)} for CPH {c.Row.Cph?.Trim()} name different assignees. " +
+                $"The holding takes row {c.Row.RowNumber}'s."))
+            .ToList();
+
+        await imports.AddRejectionsAsync(rejections, cancellationToken);
     }
 
     /// <summary>Warnings only: the row is still applied exactly as the source states it.</summary>

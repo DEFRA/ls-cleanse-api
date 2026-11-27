@@ -73,12 +73,12 @@ internal sealed class FakeRulesEngine(ICleanseDispatcher dispatcher, string grou
         rules.SelectMany(rule => rule.Evaluate());
 }
 
-internal sealed record Holding(string Cph, string Keeper);
+internal sealed record SourceHolding(string Cph, string Keeper);
 
 /// <summary>Rule 2: every holding in the legacy extract must exist in the new system.</summary>
 internal sealed class HoldingMissingInTargetRule(
-    IReadOnlyCollection<Holding> source,
-    IReadOnlyCollection<Holding> target) : ICleanseRule
+    IReadOnlyCollection<SourceHolding> source,
+    IReadOnlyCollection<SourceHolding> target) : ICleanseRule
 {
     public string RuleId => TestData.Rule2;
 
@@ -102,8 +102,8 @@ internal sealed class HoldingMissingInTargetRule(
 
 /// <summary>Rule 5: the keeper name must agree across both systems.</summary>
 internal sealed class KeeperMismatchRule(
-    IReadOnlyCollection<Holding> source,
-    IReadOnlyCollection<Holding> target) : ICleanseRule
+    IReadOnlyCollection<SourceHolding> source,
+    IReadOnlyCollection<SourceHolding> target) : ICleanseRule
 {
     public string RuleId => TestData.Rule5;
 

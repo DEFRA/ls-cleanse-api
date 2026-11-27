@@ -8,6 +8,16 @@ public abstract class UserStoreContractTests
     protected abstract IUserStore CreateStore();
     protected abstract IIssueStore CreateIssueStore();
     protected abstract IDataResetStore CreateResetStore();
+    protected abstract IHoldingStore CreateHoldingStore();
+
+    private async Task SaveHoldingAsync(Holding holding) => Assert.True(await CreateHoldingStore().SaveAsync(holding, 0));
+
+    private static Holding HoldingAt(string cph, Action<Holding>? assign = null)
+    {
+        var holding = Holding.New(new HoldingKey(Support.TestData.Group, cph), DateTimeOffset.UnixEpoch);
+        assign?.Invoke(holding);
+        return holding;
+    }
 
     protected static KnownUser Login(
         string subject = "subject", string client = "client", string tenant = "tenant", string? email = null) =>
@@ -21,30 +31,37 @@ public abstract class UserStoreContractTests
     public async Task Assignment_filters_distinguish_stable_legacy_blank_and_unassigned_before_paging()
     {
         var user = await CreateStore().UpsertLoginAsync(Login(), []);
+        var epoch = DateTimeOffset.UnixEpoch;
         var stable = Support.TestData.NewIssue("filter-stable");
-        stable.AssignKnownUser(user, DateTimeOffset.UnixEpoch);
+        var stableSecond = Support.TestData.NewIssue("filter-stable", ruleId: Support.TestData.Rule5);
         var legacy = Support.TestData.NewIssue("filter-legacy");
-        legacy.AssignTo("Legacy Person", DateTimeOffset.UnixEpoch);
         var empty = Support.TestData.NewIssue("filter-empty");
-        var whitespace = Issue.FromSnapshot(Support.TestData.NewIssue("filter-space").ToSnapshot() with
-        {
-            AssignedTo = " \t\r\n\v\f\u00a0\u2003"
-        });
-        var stableWithoutText = Issue.FromSnapshot(Support.TestData.NewIssue("filter-id-only").ToSnapshot() with
-        {
-            AssignedUserId = user.Id
-        });
+        var whitespace = Support.TestData.NewIssue("filter-space");
+        var stableWithoutText = Support.TestData.NewIssue("filter-id-only");
+
+        // No holding stored at all. Its issue-level assignment predates holdings and is not read.
+        var never = Support.TestData.NewIssue("filter-never");
+        never.AssignKnownUser(user, epoch);
         var store = CreateIssueStore();
-        await store.SaveBatchAsync([stable, legacy, empty, whitespace, stableWithoutText]);
+        await store.SaveBatchAsync([stable, stableSecond, legacy, empty, whitespace, stableWithoutText, never]);
+
+        await SaveHoldingAsync(HoldingAt("filter-stable", h => h.AssignKnownUser(user, epoch)));
+        await SaveHoldingAsync(HoldingAt("filter-legacy", h => h.SyncAssignment(null, "Legacy Person", epoch)));
+        await SaveHoldingAsync(HoldingAt("filter-empty"));
+        await SaveHoldingAsync(Holding.FromSnapshot(new HoldingSnapshot(
+            Support.TestData.Group, "filter-space", " \t\r\n\v\f\u00a0\u2003", null, null, null, epoch, epoch, 0)));
+        await SaveHoldingAsync(Holding.FromSnapshot(new HoldingSnapshot(
+            Support.TestData.Group, "filter-id-only", null, user.Id, null, null, epoch, epoch, 0)));
 
         var known = await store.SearchAsync(new IssueFilter { AssignedUserId = user.Id, Page = new PageRequest(1, 1) });
-        Assert.Equal(2, known.TotalCount);
+        Assert.Equal(3, known.TotalCount);
         Assert.Single(known.Items);
         var unassigned = await store.SearchAsync(new IssueFilter { Unassigned = true });
-        Assert.Equal(2, unassigned.TotalCount);
-        Assert.All(unassigned.Items, issue => Assert.Null(issue.AssignedUserId));
-        Assert.DoesNotContain(unassigned.Items, issue => issue.Id == legacy.Id);
-        Assert.Equal(3, (await store.SearchAsync(new IssueFilter { Unassigned = false })).TotalCount);
+        Assert.Equal(
+            new[] { empty.Id.Value, never.Id.Value, whitespace.Id.Value }.Order(StringComparer.Ordinal),
+            unassigned.Items.Select(issue => issue.Id.Value).Order(StringComparer.Ordinal));
+        Assert.Equal(4, (await store.SearchAsync(new IssueFilter { Unassigned = false })).TotalCount);
+        Assert.Equal(legacy.Id, Assert.Single((await store.SearchAsync(new IssueFilter { AssignedTo = "legacy PERSON" })).Items).Id);
         Assert.Empty((await store.SearchAsync(new IssueFilter { AssignedUserId = Guid.NewGuid() })).Items);
     }
 
@@ -265,17 +282,21 @@ public abstract class UserStoreContractTests
 
     [Theory]
     [InlineData(null)]
-    [InlineData("g")]
+    [InlineData("cts-sam")]
     public async Task Issue_resets_do_not_delete_known_users(string? group)
     {
         var users = CreateStore();
         var user = await users.UpsertLoginAsync(Login(), []);
-        var issue = Issue.FromDetection(new IssueDetection(IssueId.From("rule:reset-user"), "rule"),
-            "g", "run", DateTimeOffset.UnixEpoch);
+        var issue = Support.TestData.NewIssue("reset-user");
         issue.AssignKnownUser(user, DateTimeOffset.UnixEpoch);
         await CreateIssueStore().SaveAsync(issue, null);
+        var holding = HoldingAt("reset-user", h => h.AssignKnownUser(user, DateTimeOffset.UnixEpoch));
+        await SaveHoldingAsync(holding);
+
         await CreateResetStore().ResetAsync(group, "test", DateTimeOffset.UnixEpoch);
+
         Assert.Equal(user, await users.GetAsync(user.Id));
         Assert.Null(await CreateIssueStore().GetAsync(issue.Id));
+        Assert.Null(await CreateHoldingStore().GetAsync(holding.Key));
     }
 }
