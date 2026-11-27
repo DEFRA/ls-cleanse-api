@@ -20,6 +20,15 @@ public sealed class InMemoryAuditStore : IAuditStore
         }
     }
 
+    /// <summary>Every entry, with its insertion order, which breaks ties on time as a sequence does.</summary>
+    internal IReadOnlyList<(AuditEntry Entry, long Order)> Snapshot()
+    {
+        lock (_gate)
+        {
+            return [.. _entries.Select((entry, index) => (entry, (long)index + 1))];
+        }
+    }
+
     public Task AppendAsync(AuditEntry entry, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(entry);

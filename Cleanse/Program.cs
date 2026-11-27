@@ -3,6 +3,7 @@ using Cleanse;
 using Cleanse.Api;
 using Cleanse.Api.Diagnostics;
 using Cleanse.Api.Imports;
+using Cleanse.Api.Mi;
 using Cleanse.Api.V1;
 using Cleanse.Auth;
 using Cleanse.Core.Abstractions;
@@ -99,6 +100,15 @@ static void ConfigureServices(WebApplicationBuilder builder)
     var rules = configuration.GetSection("Rules").Get<RulesSectionOptions>() ?? new RulesSectionOptions();
     services.AddCleanseRulesEngine(rules, warnings);
 
+    var mi = configuration.GetSection("Mi").Get<MiRefreshOptions>() ?? new MiRefreshOptions();
+    mi.Validate();
+    services.AddSingleton(mi);
+    services.AddSingleton<MiRefreshSignal>();
+    if (mi.Enabled)
+    {
+        services.AddHostedService<MiRefreshService>();
+    }
+
     ConfigureHeaderPropagation(services, configuration);
     ConfigureHttpClients(services);
 
@@ -181,6 +191,7 @@ static void ConfigureEndpoints(WebApplication app)
     v1.MapRunEndpoints();
     v1.MapRuleEndpoints();
     v1.MapGroupEndpoints();
+    v1.MapMiEndpoints();
     v1.MapImportEndpoints();
     v1.MapDatasetEndpoints();
     v1.MapMaintenanceEndpoints();

@@ -77,3 +77,35 @@ public sealed class InMemorySpolDatasetStoreTests : SpolDatasetStoreContractTest
     /// <summary>There is no foreign key, so a job keeps the id of a dataset that has gone.</summary>
     protected override bool DeletingADatasetUnlinksItsJobs => false;
 }
+
+public sealed class InMemoryMiStoreTests : MiStoreContractTests
+{
+    private readonly InMemoryHoldingStore _holdings;
+    private readonly InMemoryIssueStore _issues;
+    private readonly InMemoryAuditStore _audit = new();
+    private readonly InMemoryHoldingActivityStore _activity = new();
+    private readonly InMemoryCodedValueStore _codedValues = new();
+    private readonly InMemoryRuleRunStore _runs = new();
+    private readonly InMemoryMiStore _store;
+
+    public InMemoryMiStoreTests()
+    {
+        _holdings = new InMemoryHoldingStore();
+        _issues = new InMemoryIssueStore(_holdings);
+        _store = new InMemoryMiStore(_issues, _audit, _holdings, _activity, _runs);
+    }
+
+    protected override IMiStore CreateStore() => _store;
+
+    protected override IIssueStore CreateIssueStore() => _issues;
+
+    protected override IAuditStore CreateAuditStore() => _audit;
+
+    protected override IHoldingStore CreateHoldingStore() => _holdings;
+
+    protected override IHoldingActivityStore CreateActivityStore() => _activity;
+
+    protected override ICodedValueStore CreateCodedValueStore() => _codedValues;
+
+    protected override IRuleRunStore CreateRuleRunStore() => _runs;
+}

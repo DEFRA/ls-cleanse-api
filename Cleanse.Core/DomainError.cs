@@ -47,6 +47,9 @@ public static class ErrorCodes
     public const string DatasetNotReady = "dataset.not_ready";
     public const string DatasetTooLarge = "dataset.too_large";
 
+    public const string GroupNotFound = "group.not_found";
+    public const string MiRefreshDisabled = "mi.refresh_disabled";
+
     public const string ValidationFailed = "validation.failed";
 }
 
@@ -107,6 +110,13 @@ public static class DomainErrors
     public static DomainError RulesEngineDisabled() =>
         new(ErrorCodes.RulesEngineDisabled,
             "The rules engine is disabled in this environment. Set Rules:Enabled to start runs.");
+
+    public static DomainError GroupNotFound(string groupId) =>
+        new(ErrorCodes.GroupNotFound, $"There is no group '{groupId}'.", groupId);
+
+    public static DomainError MiRefreshDisabled() =>
+        new(ErrorCodes.MiRefreshDisabled,
+            "The dashboard figures are not refreshed in this environment. Set Mi:Enabled to rebuild them.");
 
     public static DomainError Validation(string message, string? subject = null) =>
         new(ErrorCodes.ValidationFailed, message, subject);

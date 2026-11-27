@@ -29,17 +29,24 @@ public static class HoldingStatuses
     public static HoldingStatus Derive(IEnumerable<Issue> issues)
     {
         ArgumentNullException.ThrowIfNull(issues);
+        return Derive(issues.Select(issue => (issue.Status, issue.WorkflowStatus)));
+    }
+
+    /// <summary>The same rule from bare states, for replaying a holding's history.</summary>
+    public static HoldingStatus Derive(IEnumerable<(IssueStatus Status, WorkflowStatus WorkflowStatus)> issues)
+    {
+        ArgumentNullException.ThrowIfNull(issues);
 
         var todo = false;
         var suppressed = false;
-        foreach (var issue in issues)
+        foreach (var (status, workflowStatus) in issues)
         {
-            if (issue.Status != IssueStatus.Active)
+            if (status != IssueStatus.Active)
             {
                 continue;
             }
 
-            switch (issue.WorkflowStatus)
+            switch (workflowStatus)
             {
                 case WorkflowStatus.InProgress:
                     return HoldingStatus.InProgress;
@@ -81,4 +88,19 @@ public static class HoldingStatuses
         HoldingStatus.Closed => Closed,
         _ => throw new ArgumentOutOfRangeException(nameof(status), status, null)
     };
+
+    public static bool TryParse(string? value, out HoldingStatus status)
+    {
+        foreach (var candidate in Enum.GetValues<HoldingStatus>())
+        {
+            if (string.Equals(candidate.ToWire(), value, StringComparison.Ordinal))
+            {
+                status = candidate;
+                return true;
+            }
+        }
+
+        status = default;
+        return false;
+    }
 }

@@ -88,6 +88,12 @@ internal sealed class SqliteDataResetStore(CleanseSqliteDatabase database) : IDa
             "DELETE FROM holdings",
             "DELETE FROM holdings WHERE group_id = $group");
 
+        // The dashboard's summary is built from what has just gone, so it goes too.
+        foreach (var table in new[] { "mi_events", "mi_daily_changes", "mi_issue_states", "mi_holding_states", "mi_refresh" })
+        {
+            await DeleteAsync($"DELETE FROM {table}", $"DELETE FROM {table} WHERE group_id = $group");
+        }
+
         await using (var record = connection.CreateCommand())
         {
             record.Transaction = transaction;

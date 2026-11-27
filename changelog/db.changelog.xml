@@ -130,4 +130,12 @@
                  stripComments="false"/>
     </changeSet>
 
+    <changeSet id="0013-mi-dashboard" author="cleanse" runOnChange="false" runInTransaction="false">
+        <comment>The MI dashboard's summary tables, and the audit index its refresh reads through. Changes no existing data.</comment>
+        <sqlFile path="sql/0013_mi_dashboard.sql"
+                 relativeToChangelogFile="true"
+                 splitStatements="false"
+                 stripComments="false"/>
+    </changeSet>
+
 </databaseChangeLog>

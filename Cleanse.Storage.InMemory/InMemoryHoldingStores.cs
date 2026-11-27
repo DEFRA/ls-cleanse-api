@@ -11,6 +11,9 @@ public sealed class InMemoryHoldingStore : IHoldingStore
 
     public int Count => _holdings.Count;
 
+    internal IReadOnlyList<HoldingSnapshot> Snapshot(string groupId) =>
+        [.. _holdings.Values.Where(h => string.Equals(h.GroupId, groupId, StringComparison.Ordinal))];
+
     /// <summary>The stored holding's assignment, for the issue store's assignee filters.</summary>
     internal HoldingSnapshot? Find(string groupId, string cph) =>
         _holdings.TryGetValue(new HoldingKey(groupId, cph), out var snapshot) ? snapshot : null;
@@ -78,6 +81,18 @@ public sealed class InMemoryHoldingActivityStore : IHoldingActivityStore
     private readonly Lock _gate = new();
     private readonly List<HoldingNoteSnapshot> _notes = [];
     private readonly List<HoldingActionSnapshot> _actions = [];
+
+    /// <summary>The group's notes and actions, each with its insertion order.</summary>
+    internal (IReadOnlyList<(HoldingNoteSnapshot Note, long Order)> Notes, IReadOnlyList<(HoldingActionSnapshot Action, long Order)> Actions)
+        Snapshot(string groupId)
+    {
+        lock (_gate)
+        {
+            return (
+                [.. _notes.Select((note, index) => (note, (long)index + 1)).Where(x => x.note.GroupId == groupId)],
+                [.. _actions.Select((action, index) => (action, (long)index + 1)).Where(x => x.action.GroupId == groupId)]);
+        }
+    }
 
     public (int Notes, int Actions) Clear(string? groupId)
     {

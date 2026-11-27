@@ -266,7 +266,7 @@ internal static class RowMappings
             row.CreatedAtUtc,
             RebuildActor(row.CreatedById, row.CreatedByDisplayName, row.CreatedByKind)));
 
-    private static Actor RebuildActor(string id, string displayName, string kind) =>
+    public static Actor RebuildActor(string id, string displayName, string kind) =>
         Enum.Parse<ActorKind>(kind, ignoreCase: true) == ActorKind.System
             ? id == Actor.SystemId ? Actor.System : Actor.Machine(id, displayName)
             : Actor.Human(id, displayName);

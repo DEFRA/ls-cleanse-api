@@ -358,3 +358,142 @@ internal sealed class SpolDatasetItemRow
 
     public required string Data { get; set; }
 }
+
+internal sealed class MiRefreshRow
+{
+    public required string GroupId { get; set; }
+
+    public DateTimeOffset BuiltAtUtc { get; set; }
+
+    public DateTimeOffset CheckedAtUtc { get; set; }
+
+    public required string Fingerprint { get; set; }
+
+    public int Version { get; set; }
+
+    public int DurationMilliseconds { get; set; }
+
+    public DateTimeOffset? HistoryFromUtc { get; set; }
+
+    public int Issues { get; set; }
+
+    public int Events { get; set; }
+
+    public int Mismatches { get; set; }
+}
+
+internal sealed class MiIssueStateRow
+{
+    public required string GroupId { get; set; }
+
+    public required string IssueId { get; set; }
+
+    public required string RuleId { get; set; }
+
+    public string? Cph { get; set; }
+
+    public required string Status { get; set; }
+
+    public required string WorkflowStatus { get; set; }
+
+    public Guid? ReasonId { get; set; }
+
+    public string? ReasonName { get; set; }
+
+    public DateTimeOffset FirstRaisedAtUtc { get; set; }
+
+    public DateOnly FirstRaisedDay { get; set; }
+
+    public DateTimeOffset LastChangedAtUtc { get; set; }
+}
+
+internal sealed class MiHoldingStateRow
+{
+    public required string GroupId { get; set; }
+
+    public required string Cph { get; set; }
+
+    public required string Status { get; set; }
+
+    public bool HasActiveIssue { get; set; }
+
+    public int OpenIssues { get; set; }
+
+    public DateTimeOffset? OldestOpenRaisedAtUtc { get; set; }
+
+    public DateOnly? OldestOpenRaisedDay { get; set; }
+
+    public DateTimeOffset? InProgressSinceUtc { get; set; }
+
+    public DateTimeOffset? LastWorkedAtUtc { get; set; }
+
+    public Guid? AssignedUserId { get; set; }
+
+    public string? AssigneeName { get; set; }
+}
+
+internal sealed class MiEventRow
+{
+    public required string GroupId { get; set; }
+
+    public long Sequence { get; set; }
+
+    public DateTimeOffset AtUtc { get; set; }
+
+    public DateOnly Day { get; set; }
+
+    public required string Unit { get; set; }
+
+    public required string Kind { get; set; }
+
+    public required string Source { get; set; }
+
+    public string? IssueId { get; set; }
+
+    public string? RuleId { get; set; }
+
+    public string? Cph { get; set; }
+
+    public Guid? UserId { get; set; }
+
+    public string? UserName { get; set; }
+
+    public string? FromStatus { get; set; }
+
+    public string? ToStatus { get; set; }
+
+    public string? FromWorkflow { get; set; }
+
+    public string? ToWorkflow { get; set; }
+
+    public Guid? ReasonId { get; set; }
+
+    public string? ReasonName { get; set; }
+
+    public string? OpenChange { get; set; }
+
+    public int OpenDelta { get; set; }
+
+    public int? ElapsedDays { get; set; }
+
+    public bool? InactiveNow { get; set; }
+
+    public int? ActionsSinceClosed { get; set; }
+}
+
+internal sealed class MiDailyChangeRow
+{
+    public required string GroupId { get; set; }
+
+    public required string Unit { get; set; }
+
+    public DateOnly Day { get; set; }
+
+    public required string RuleId { get; set; }
+
+    public required string Status { get; set; }
+
+    public required string State { get; set; }
+
+    public int Delta { get; set; }
+}

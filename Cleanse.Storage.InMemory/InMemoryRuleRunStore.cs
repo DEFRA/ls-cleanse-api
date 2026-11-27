@@ -10,6 +10,12 @@ public sealed class InMemoryRuleRunStore : IRuleRunStore
 
     public int Count => _runs.Count;
 
+    internal DateTimeOffset? FirstStartedAt(string groupId) =>
+        _runs.Values
+            .Where(r => string.Equals(r.GroupId, groupId, StringComparison.Ordinal))
+            .Select(r => (DateTimeOffset?)r.StartedAtUtc)
+            .Min();
+
     /// <summary>
     /// Hard delete. Returns the run ids removed so the audit log, which is keyed by run rather
     /// than by group, can be cleared to match.

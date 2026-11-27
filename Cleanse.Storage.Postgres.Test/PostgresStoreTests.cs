@@ -1,5 +1,6 @@
 using Cleanse.Core.Abstractions;
 using Cleanse.Core.Domain;
+using Cleanse.Core.Domain.Mi;
 using Cleanse.Core.Test.Storage;
 using Cleanse.Core.Test.Support;
 using Cleanse.Storage.Postgres.Schema;
@@ -174,6 +175,68 @@ public sealed class PostgresSpolDatasetStoreTests(PostgresFixture fixture)
     protected override ISpolDatasetStore CreateStore() => new PostgresSpolDatasetStore(_harness.NewContext());
 
     protected override IImportJobStore CreateImportJobStore() => new PostgresImportJobStore(_harness.NewContext());
+
+    public ValueTask InitializeAsync() => _harness.InitializeAsync();
+
+    public ValueTask DisposeAsync() => _harness.DisposeAsync();
+}
+
+[Collection(PostgresCollection.Name)]
+public sealed class PostgresMiStoreTests(PostgresFixture fixture)
+    : MiStoreContractTests, IAsyncLifetime
+{
+    private readonly PostgresStoreHarness _harness = new(fixture);
+
+    protected override IMiStore CreateStore() => new PostgresMiStore(_harness.NewContext());
+
+    protected override IIssueStore CreateIssueStore() =>
+        new PostgresIssueStore(_harness.NewContext(), CleansePostgresOptions.ForExistingDataSource());
+
+    protected override IAuditStore CreateAuditStore() => new PostgresAuditStore(_harness.NewContext());
+
+    protected override IHoldingStore CreateHoldingStore() => new PostgresHoldingStore(_harness.NewContext());
+
+    protected override IHoldingActivityStore CreateActivityStore() => new PostgresHoldingActivityStore(_harness.NewContext());
+
+    protected override ICodedValueStore CreateCodedValueStore() => new PostgresCodedValueStore(_harness.NewContext());
+
+    protected override IRuleRunStore CreateRuleRunStore() => new PostgresRuleRunStore(_harness.NewContext());
+
+    /// <summary>A second instance replacing at the same moment writes nothing, rather than doubling the rows.</summary>
+    [Fact]
+    public async Task A_replace_while_another_is_in_progress_writes_nothing()
+    {
+        var holder = _harness.NewContext();
+        await using var transaction = await holder.Database.BeginTransactionAsync();
+        await holder.Database.ExecuteSqlRawAsync(
+            "SELECT pg_advisory_xact_lock(hashtextextended('cleanse.mi:' || {0}, 0))", TestData.Group);
+
+        var summary = new MiSummary(
+            new MiRefreshRecord(TestData.Group, TestData.Night1, TestData.Night1, "f", 1, 0, null, 0, 0, 0),
+            [], [], [], []);
+
+        Assert.False(await CreateStore().ReplaceAsync(summary));
+        await transaction.RollbackAsync();
+
+        Assert.Null(await CreateStore().GetRefreshAsync(TestData.Group));
+        Assert.True(await CreateStore().ReplaceAsync(summary));
+        Assert.NotNull(await CreateStore().GetRefreshAsync(TestData.Group));
+    }
+
+    /// <summary>Guards the index the refresh reads the audit log through, as the grouped search's is guarded.</summary>
+    [Fact]
+    public async Task The_refresh_reads_the_audit_log_through_its_partial_index()
+    {
+        var db = _harness.NewContext();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        await db.Database.ExecuteSqlRawAsync("SET LOCAL enable_seqscan = off");
+
+        // The filter is a constant from the provider, not input, so there is nothing to inject.
+        var explain = "EXPLAIN SELECT count(*), max(sequence) FROM audit_entries WHERE " + Db.MiAuditFilter;
+        var plan = await db.Database.SqlQueryRaw<string>(explain).ToListAsync();
+
+        Assert.Contains(plan, line => line.Contains("ix_audit_entries_mi", StringComparison.Ordinal));
+    }
 
     public ValueTask InitializeAsync() => _harness.InitializeAsync();
 
