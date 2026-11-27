@@ -176,6 +176,7 @@ static void ConfigureEndpoints(WebApplication app)
     v1.MapIssueEndpoints();
     v1.MapHoldingEndpoints();
     v1.MapListEndpoints();
+    v1.MapSettingsEndpoints();
     v1.MapUserEndpoints();
     v1.MapRunEndpoints();
     v1.MapRuleEndpoints();

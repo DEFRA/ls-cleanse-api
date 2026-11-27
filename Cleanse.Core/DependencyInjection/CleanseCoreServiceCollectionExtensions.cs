@@ -7,6 +7,7 @@ using Cleanse.Core.Commands.Imports;
 using Cleanse.Core.Commands.Issues;
 using Cleanse.Core.Commands.Maintenance;
 using Cleanse.Core.Commands.Runs;
+using Cleanse.Core.Commands.Settings;
 using Cleanse.Core.Contracts;
 using Cleanse.Core.Dispatching;
 using Cleanse.Core.Queries.Audit;
@@ -16,6 +17,7 @@ using Cleanse.Core.Queries.Holdings;
 using Cleanse.Core.Queries.Imports;
 using Cleanse.Core.Queries.Issues;
 using Cleanse.Core.Queries.Runs;
+using Cleanse.Core.Queries.Settings;
 using Cleanse.Core.Users;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -73,6 +75,8 @@ public static class CleanseCoreServiceCollectionExtensions
         AddCommand<AddCodedValueCommand, CodedValueDto, AddCodedValueCommandHandler>(services);
         AddCommand<SetCodedValueActiveCommand, CodedValueDto, SetCodedValueActiveCommandHandler>(services);
 
+        AddCommand<UpdateSettingsCommand, SettingsDto, UpdateSettingsCommandHandler>(services);
+
         AddCommand<CreateImportJobCommand, ImportJobDto, CreateImportJobCommandHandler>(services);
         AddCommand<ApplyImportBatchCommand, ImportBatchResult, ApplyImportBatchCommandHandler>(services);
         AddCommand<CompleteImportJobCommand, ImportJobDto, CompleteImportJobCommandHandler>(services);
@@ -93,6 +97,7 @@ public static class CleanseCoreServiceCollectionExtensions
         AddQuery<GetIssueHistoryQuery, PagedResult<IssueHistoryEntryDto>, GetIssueHistoryQueryHandler>(services);
         AddQuery<GetHoldingQuery, HoldingDetailDto, GetHoldingQueryHandler>(services);
         AddQuery<ListCodedValuesQuery, IReadOnlyList<CodedValueDto>, ListCodedValuesQueryHandler>(services);
+        AddQuery<GetSettingsQuery, SettingsDto, GetSettingsQueryHandler>(services);
 
         AddQuery<GetImportJobQuery, ImportJobDto, GetImportJobQueryHandler>(services);
         AddQuery<SearchImportJobsQuery, PagedResult<ImportJobDto>, SearchImportJobsQueryHandler>(services);

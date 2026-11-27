@@ -10,8 +10,8 @@ public interface IDataResetStore
     /// <summary>
     /// Permanently removes issues, their case history and audit trail, rule runs, import jobs,
     /// and the holdings with their notes and actions. Confined to <paramref name="groupId"/> when
-    /// one is supplied; otherwise everything. Users and the admin-maintained lists are kept.
-    /// Records the reset itself, which is the one thing it must not delete.
+    /// one is supplied; otherwise everything. Users, the admin-maintained lists and the service
+    /// settings are kept. Records the reset itself, which is the one thing it must not delete.
     /// </summary>
     Task<ResetCounts> ResetAsync(
         string? groupId,

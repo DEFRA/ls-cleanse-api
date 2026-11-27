@@ -36,7 +36,7 @@ public sealed class InMemoryAuditStore : IAuditStore
     /// <summary>
     /// Hard delete. Entries are keyed by issue, run or subject, never by group, so a scoped clear
     /// has to be given the ids and the subject prefix. Null for all of them wipes the whole log,
-    /// except entries about the admin-maintained lists, which a reset keeps.
+    /// except entries about the admin-maintained lists and settings, which a reset keeps.
     /// </summary>
     public int Clear(
         IReadOnlyCollection<string>? issueIds,
@@ -49,7 +49,8 @@ public sealed class InMemoryAuditStore : IAuditStore
             {
                 return _entries.RemoveAll(e =>
                     e.Subject is not { } subject ||
-                    !subject.StartsWith(AuditSubjects.CodedValuePrefix, StringComparison.Ordinal));
+                    !(subject.StartsWith(AuditSubjects.CodedValuePrefix, StringComparison.Ordinal) ||
+                      subject.StartsWith(AuditSubjects.SettingPrefix, StringComparison.Ordinal)));
             }
 
             var issues = issueIds?.ToHashSet(StringComparer.Ordinal) ?? [];

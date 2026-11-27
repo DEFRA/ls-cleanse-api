@@ -386,6 +386,13 @@ public sealed class InMemoryIssueStore : IIssueStore
             return false;
         }
 
+        if (filter.MinimumAge is { } minimumAge &&
+            (snapshot.CreatedAtUtc > minimumAge.RaisedByUtc ||
+             (snapshot.DeactivatedAtUtc is { } deactivated && deactivated - snapshot.CreatedAtUtc < minimumAge.Age)))
+        {
+            return false;
+        }
+
         if (filter.ContextMatches is { Count: > 0 } context)
         {
             foreach (var (key, value) in context)

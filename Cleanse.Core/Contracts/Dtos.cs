@@ -126,6 +126,8 @@ public sealed record CodedValueDto(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc);
 
+public sealed record SettingsDto(int MinimumIssueAgeDays);
+
 /// <summary>
 /// Read model for a run. Progress, elapsed time and the projected completion are derived at
 /// read time rather than stored, so a running run reports a current answer on every request.

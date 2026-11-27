@@ -314,5 +314,24 @@ public sealed class SqliteDataResetTests : IAsyncDisposable
         Assert.NotNull(await _harness.Issues.GetAsync(TestData.Key("a")));
     }
 
+    [Fact]
+    public async Task A_full_reset_keeps_the_settings_and_their_audit()
+    {
+        await SeedAsync(TestData.Group, "run-1", "a");
+        await _harness.Settings.SaveAsync(new ServiceSettings(7));
+        await _harness.Audit.AppendAsync(AuditEntry.ForSetting(
+            ServiceSettings.MinimumIssueAgeDaysName,
+            new IssueChange(AuditEventKind.SettingChanged, [new AuditChange("MinimumIssueAgeDays", "14", "7")]),
+            TestData.Alice,
+            TestData.Night1));
+
+        var counts = await _harness.Reset.ResetAsync(groupId: null, "tester", TestData.Night1);
+
+        Assert.Equal(2, counts.AuditEntries);
+        Assert.Equal(new ServiceSettings(7), await _harness.Settings.GetAsync());
+        var subject = AuditSubjects.Setting(ServiceSettings.MinimumIssueAgeDaysName);
+        Assert.Equal(1, (await _harness.Audit.GetForSubjectAsync(subject, PageRequest.Default)).TotalCount);
+    }
+
     public ValueTask DisposeAsync() => _harness.DisposeAsync();
 }

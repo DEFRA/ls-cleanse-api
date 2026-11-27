@@ -55,10 +55,15 @@ notes and recorded actions; its status is worked out from its active issues when
 | `closed`       | No active issue is open or suppressed.                |
 
 Every change to an issue is recorded in an append-only audit trail with before and after values,
-and so is every change to a holding's assignee and to the admin lists. Case work recorded before
-holdings existed — comments, letters sent, phone calls — is kept as issue history and shown on the
-holding. An issue can be suppressed until a date; a maintenance sweep returns lapsed suppressions
-to the queue.
+and so is every change to a holding's assignee, to the admin lists and to the settings. Case work
+recorded before holdings existed — comments, letters sent, phone calls — is kept as issue history
+and shown on the holding. An issue can be suppressed until a date; a maintenance sweep returns
+lapsed suppressions to the queue.
+
+Some issues come from a passing mismatch between CTS and SAM that clears itself within days. A
+search can ask to leave out issues raised fewer than `minimumIssueAgeDays` days ago (an admin
+setting, 14 by default), and those the rules closed before they reached that age, so that
+caseworkers only see issues that have lasted.
 
 ### Rules
 
@@ -97,7 +102,7 @@ Two authentication schemes are supported:
 
 | Method   | Route                             | Purpose                                                                                                        |
 | -------- | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `GET`    | `/v1/issues`                      | Search and page. Filter by group, rule, run, status, workflow status, the holding's assignee, date ranges and a search term. |
+| `GET`    | `/v1/issues`                      | Search and page. Filter by group, rule, run, status, workflow status, the holding's assignee, date ranges and a search term. `applyMinimumAge=true` leaves out issues younger than the minimum issue age. |
 | `GET`    | `/v1/issues/by-cph`               | The same search, grouped by CPH. Pages count CPHs, newest activity first, each carrying all its issues and its holding's status and assignee. |
 | `GET`    | `/v1/issues/{id}`                 | Fetch one issue.                                                                                               |
 | `PUT`    | `/v1/issues/{id}/notes`           | Replace the notes.                                                                                             |
@@ -140,6 +145,15 @@ Entries are added and switched on or off, never renamed or deleted, and a reset 
 | `PUT`  | `/v1/lists/{list}/{id}/active`   | Switch an entry on or off.                                          |
 
 Only the front-end may change the lists; it decides who is an admin.
+
+### Settings
+
+| Method | Route          | Purpose                                                                                   |
+| ------ | -------------- | ----------------------------------------------------------------------------------------- |
+| `GET`  | `/v1/settings` | The service-wide settings. `minimumIssueAgeDays` is 14 until an admin changes it.         |
+| `PUT`  | `/v1/settings` | Change them. `minimumIssueAgeDays` must be a whole number from 0, which lists every issue, to 365. |
+
+Only the front-end may change the settings, and a reset keeps them.
 
 ### Runs and rules
 

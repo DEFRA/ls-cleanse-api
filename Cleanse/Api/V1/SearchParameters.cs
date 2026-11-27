@@ -75,7 +75,8 @@ public sealed record IssueSearchParameters(
     [FromQuery(Name = "pageSize")] int? PageSize,
     [FromQuery(Name = "assignedUserId")] string? AssignedUserId = null,
     [FromQuery(Name = "groupSortBy")] string? GroupSortBy = null,
-    [FromQuery(Name = "groupSortDirection")] string? GroupSortDirection = null)
+    [FromQuery(Name = "groupSortDirection")] string? GroupSortDirection = null,
+    [FromQuery(Name = "applyMinimumAge")] bool? ApplyMinimumAge = null)
 {
     public bool TryBuildFilter(out IssueFilter filter, out string? error)
     {

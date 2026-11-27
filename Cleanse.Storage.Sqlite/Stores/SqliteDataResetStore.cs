@@ -50,11 +50,17 @@ internal sealed class SqliteDataResetStore(CleanseSqliteDatabase database) : IDa
             """);
 
         // Has to precede both tables it reads: audit rows reach their group through them. The
-        // admin lists outlive a reset, so their audit does too.
+        // admin lists and settings outlive a reset, so their audit does too.
         const string codedValue = AuditSubjects.CodedValuePrefix;
+        const string setting = AuditSubjects.SettingPrefix;
         const string holding = AuditSubjects.HoldingPrefix;
         var audit = await DeleteAsync(
-            $"DELETE FROM audit_entries WHERE subject IS NULL OR substr(subject, 1, {codedValue.Length}) <> '{codedValue}'",
+            $"""
+            DELETE FROM audit_entries
+            WHERE subject IS NULL
+               OR (substr(subject, 1, {codedValue.Length}) <> '{codedValue}'
+                   AND substr(subject, 1, {setting.Length}) <> '{setting}')
+            """,
             $"""
             DELETE FROM audit_entries
             WHERE issue_id IN (SELECT id FROM issues WHERE group_id = $group)

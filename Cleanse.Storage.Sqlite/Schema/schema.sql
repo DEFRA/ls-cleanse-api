@@ -205,6 +205,13 @@ CREATE TABLE IF NOT EXISTS coded_values (
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_coded_values_list_name ON coded_values (list, name_key);
 
+-- The service-wide settings: one row, absent until an admin first saves. A reset keeps it, and the
+-- audit log records who changed it and when.
+CREATE TABLE IF NOT EXISTS service_settings (
+    id                      INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    minimum_issue_age_days  INTEGER NOT NULL CHECK (minimum_issue_age_days >= 0)
+);
+
 -- A holding with something recorded against it, keyed like the issues' context.
 CREATE TABLE IF NOT EXISTS holdings (
     group_id                    TEXT    NOT NULL,

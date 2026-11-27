@@ -113,6 +113,16 @@ internal static class IssueFilterSql
                 "f_updated_before", updatedBefore, NpgsqlDbType.TimestampTz);
         }
 
+        if (filter.MinimumAge is { } minimumAge)
+        {
+            Add($"{Db.Issue.CreatedAtUtc} <= @f_raised_by",
+                "f_raised_by", minimumAge.RaisedByUtc, NpgsqlDbType.TimestampTz);
+
+            // Comparing intervals counts a day as 24 hours, as the other providers do, whatever the session time zone.
+            Add($"({Db.Issue.DeactivatedAtUtc} IS NULL OR {Db.Issue.DeactivatedAtUtc} - {Db.Issue.CreatedAtUtc} >= @f_minimum_age)",
+                "f_minimum_age", minimumAge.Age, NpgsqlDbType.Interval);
+        }
+
         if (filter.ContextMatches is { Count: > 0 } context)
         {
             // Containment, so the jsonb_path_ops GIN index can serve it.

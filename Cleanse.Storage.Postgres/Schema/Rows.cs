@@ -143,6 +143,14 @@ internal sealed class CodedValueRow
     public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
+/// <summary>The one row of service-wide settings. Its id is always 1.</summary>
+internal sealed class ServiceSettingsRow
+{
+    public int Id { get; set; }
+
+    public int MinimumIssueAgeDays { get; set; }
+}
+
 /// <summary>One recorded reset. Survives the reset it records.</summary>
 internal sealed class DataResetRow
 {
