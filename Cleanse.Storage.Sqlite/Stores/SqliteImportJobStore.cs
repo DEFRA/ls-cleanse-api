@@ -10,7 +10,7 @@ internal sealed class SqliteImportJobStore(CleanseSqliteDatabase database) : IIm
     private const string Columns =
         "id, group_id, file_name, blob_key, status, total_rows, processed_rows, matched, " +
         "unmatched, duplicates_collapsed, invalid, requested_by, created_at_utc, started_at_utc, " +
-        "finished_at_utc, heartbeat_at_utc, failure_reason, version, tenant_id, client_id";
+        "finished_at_utc, heartbeat_at_utc, failure_reason, version, tenant_id, client_id, dataset_id, users_created";
 
     public async Task<ImportJob?> GetAsync(Guid id, CancellationToken cancellationToken = default)
     {
@@ -34,7 +34,7 @@ internal sealed class SqliteImportJobStore(CleanseSqliteDatabase database) : IIm
             VALUES ($id, $group_id, $file_name, $blob_key, $status, $total_rows, $processed_rows,
                     $matched, $unmatched, $duplicates_collapsed, $invalid, $requested_by,
                     $created_at_utc, $started_at_utc, $finished_at_utc, $heartbeat_at_utc,
-                    $failure_reason, $version, $tenant_id, $client_id)
+                    $failure_reason, $version, $tenant_id, $client_id, $dataset_id, $users_created)
             """;
         Bind(command, job.ToSnapshot());
 
@@ -64,6 +64,7 @@ internal sealed class SqliteImportJobStore(CleanseSqliteDatabase database) : IIm
                 unmatched = $unmatched,
                 duplicates_collapsed = $duplicates_collapsed,
                 invalid = $invalid,
+                users_created = $users_created,
                 started_at_utc = $started_at_utc,
                 finished_at_utc = $finished_at_utc,
                 heartbeat_at_utc = $heartbeat_at_utc,
@@ -92,6 +93,19 @@ internal sealed class SqliteImportJobStore(CleanseSqliteDatabase database) : IIm
 
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         return await reader.ReadAsync(cancellationToken) ? Read(reader) : null;
+    }
+
+    public async Task<bool> HasActiveForDatasetAsync(Guid datasetId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await database.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1 FROM import_jobs
+                WHERE dataset_id = $dataset_id AND status IN ('Pending', 'Processing'))
+            """;
+        command.Bind("$dataset_id", datasetId.ToString());
+        return Convert.ToInt64(await command.ExecuteScalarAsync(cancellationToken)) == 1;
     }
 
     public async Task<ImportJob?> LeaseNextPendingAsync(
@@ -152,19 +166,41 @@ internal sealed class SqliteImportJobStore(CleanseSqliteDatabase database) : IIm
     public async Task<PagedResult<ImportJob>> SearchAsync(
         string? groupId,
         PageRequest page,
+        Guid? datasetId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(page);
 
-        var filter = groupId is null ? string.Empty : "WHERE group_id = $group_id";
+        var conditions = new List<string>();
+        if (groupId is not null)
+        {
+            conditions.Add("group_id = $group_id");
+        }
+
+        if (datasetId is not null)
+        {
+            conditions.Add("dataset_id = $dataset_id");
+        }
+
+        var filter = conditions.Count == 0 ? string.Empty : "WHERE " + string.Join(" AND ", conditions);
         await using var connection = await database.OpenAsync(cancellationToken);
+
+        void BindFilter(SqliteCommand command)
+        {
+            if (groupId is not null)
+            {
+                command.Bind("$group_id", groupId);
+            }
+
+            if (datasetId is not null)
+            {
+                command.Bind("$dataset_id", datasetId.Value.ToString());
+            }
+        }
 
         await using var countCommand = connection.CreateCommand();
         countCommand.CommandText = $"SELECT COUNT(*) FROM import_jobs {filter}";
-        if (groupId is not null)
-        {
-            countCommand.Bind("$group_id", groupId);
-        }
+        BindFilter(countCommand);
 
         var total = Convert.ToInt64(await countCommand.ExecuteScalarAsync(cancellationToken));
 
@@ -175,10 +211,7 @@ internal sealed class SqliteImportJobStore(CleanseSqliteDatabase database) : IIm
             ORDER BY created_at_utc DESC, id DESC
             LIMIT $limit OFFSET $offset
             """;
-        if (groupId is not null)
-        {
-            pageCommand.Bind("$group_id", groupId);
-        }
+        BindFilter(pageCommand);
 
         pageCommand.Bind("$limit", page.PageSize);
         pageCommand.Bind("$offset", page.Skip);
@@ -272,7 +305,7 @@ internal sealed class SqliteImportJobStore(CleanseSqliteDatabase database) : IIm
         Guid.Parse(reader.GetString(0)),
         reader.GetString(1),
         reader.GetString(2),
-        reader.GetString(3),
+        reader.GetString(3) is { Length: > 0 } blobKey ? blobKey : null,
         Enum.Parse<ImportJobStatus>(reader.GetString(4)),
         new ImportJobCounters(
             reader.GetInt32(5),
@@ -280,7 +313,8 @@ internal sealed class SqliteImportJobStore(CleanseSqliteDatabase database) : IIm
             reader.GetInt32(7),
             reader.GetInt32(8),
             reader.GetInt32(9),
-            reader.GetInt32(10)),
+            reader.GetInt32(10),
+            reader.GetInt32(21)),
         reader.GetString(11),
         SqliteMappings.ToTimestamp(reader.GetString(12)),
         reader.IsDBNull(13) ? null : SqliteMappings.ToTimestamp(reader.GetString(13)),
@@ -289,7 +323,8 @@ internal sealed class SqliteImportJobStore(CleanseSqliteDatabase database) : IIm
         reader.IsDBNull(16) ? null : reader.GetString(16),
         reader.GetInt32(17),
         reader.IsDBNull(18) ? null : reader.GetString(18),
-        reader.IsDBNull(19) ? null : reader.GetString(19)));
+        reader.IsDBNull(19) ? null : reader.GetString(19),
+        reader.IsDBNull(20) ? null : Guid.Parse(reader.GetString(20))));
 
     private static void Bind(SqliteCommand command, ImportJobSnapshot snapshot)
     {
@@ -298,7 +333,9 @@ internal sealed class SqliteImportJobStore(CleanseSqliteDatabase database) : IIm
         command.Bind("$client_id", snapshot.ClientId);
         command.Bind("$group_id", snapshot.GroupId);
         command.Bind("$file_name", snapshot.FileName);
-        command.Bind("$blob_key", snapshot.BlobKey);
+        command.Bind("$blob_key", snapshot.BlobKey ?? string.Empty);
+        command.Bind("$dataset_id", snapshot.DatasetId?.ToString());
+        command.Bind("$users_created", snapshot.Counters.UsersCreated);
         command.Bind("$status", snapshot.Status.ToString());
         command.Bind("$total_rows", snapshot.Counters.TotalRows);
         command.Bind("$processed_rows", snapshot.Counters.ProcessedRows);

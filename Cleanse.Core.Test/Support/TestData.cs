@@ -1,4 +1,5 @@
 using Cleanse.Core.Domain;
+using Cleanse.Core.Domain.Imports;
 
 namespace Cleanse.Core.Test.Support;
 
@@ -35,4 +36,24 @@ internal static class TestData
         string ruleId = Rule2,
         DateTimeOffset? at = null) =>
         Issue.FromDetection(Detection(cph, ruleId), groupId, runId, at ?? Night1);
+
+    /// <summary>
+    /// A pending job from a file upload, before datasets. It has no dataset, so a store needs
+    /// nothing else to hold it.
+    /// </summary>
+    public static ImportJob NewUploadJob(string groupId = Group, DateTimeOffset? at = null, int totalRows = 10) =>
+        ImportJob.FromSnapshot(new ImportJobSnapshot(
+            Guid.NewGuid(),
+            groupId,
+            "extract.csv",
+            $"imports/{groupId}/{Guid.NewGuid()}.csv",
+            ImportJobStatus.Pending,
+            ImportJobCounters.Empty with { TotalRows = totalRows },
+            "alice",
+            at ?? Night1,
+            StartedAtUtc: null,
+            FinishedAtUtc: null,
+            HeartbeatAtUtc: null,
+            FailureReason: null,
+            Version: 1));
 }

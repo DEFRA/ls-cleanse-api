@@ -8,13 +8,16 @@ public interface IImportJobStore
 
     /// <summary>
     /// Fails when the group already has a pending or processing job. Relational providers back
-    /// this with a unique partial index, so two concurrent uploads cannot both win.
+    /// this with a unique partial index, so two requests to process at once cannot both win.
     /// </summary>
     Task<bool> TryCreateAsync(ImportJob job, CancellationToken cancellationToken = default);
 
     Task SaveAsync(ImportJob job, CancellationToken cancellationToken = default);
 
     Task<ImportJob?> GetActiveForGroupAsync(string groupId, CancellationToken cancellationToken = default);
+
+    /// <summary>Whether the dataset has a pending or processing job.</summary>
+    Task<bool> HasActiveForDatasetAsync(Guid datasetId, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atomically moves one pending job to processing and returns it. Returns null when there is
@@ -28,9 +31,11 @@ public interface IImportJobStore
         int limit,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Newest first, of the group's or the dataset's jobs when either is given.</summary>
     Task<PagedResult<ImportJob>> SearchAsync(
         string? groupId,
         PageRequest page,
+        Guid? datasetId = null,
         CancellationToken cancellationToken = default);
 
     Task AddRejectionsAsync(

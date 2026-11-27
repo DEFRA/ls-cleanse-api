@@ -53,8 +53,7 @@ public sealed class PostgresDataResetTests(PostgresFixture fixture) : IAsyncLife
                 TestData.Night1)
         ]);
 
-        var job = ImportJob.Create(
-            Guid.NewGuid(), groupId, "extract.csv", $"imports/{groupId}/{runId}.csv", "alice", 1, TestData.Night1);
+        var job = TestData.NewUploadJob(groupId, TestData.Night1, totalRows: 1);
         var imports = Imports;
         Assert.True(await imports.TryCreateAsync(job));
         await imports.AddRejectionsAsync(

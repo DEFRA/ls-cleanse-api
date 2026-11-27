@@ -17,7 +17,8 @@ public sealed record ImportJobCounters(
     int Matched,
     int Unmatched,
     int DuplicatesCollapsed,
-    int Invalid)
+    int Invalid,
+    int UsersCreated = 0)
 {
     public static readonly ImportJobCounters Empty = new(0, 0, 0, 0, 0, 0);
 
@@ -27,11 +28,15 @@ public sealed record ImportJobCounters(
         : (int)Math.Clamp(Math.Round(ProcessedRows / (double)TotalRows * 100), 0, 100);
 }
 
+/// <summary>
+/// <see cref="BlobKey"/>, <see cref="TenantId"/> and <see cref="ClientId"/> belong to the file
+/// uploads that came before datasets, and are kept only so those jobs and their reports still read.
+/// </summary>
 public sealed record ImportJobSnapshot(
     Guid Id,
     string GroupId,
     string FileName,
-    string BlobKey,
+    string? BlobKey,
     ImportJobStatus Status,
     ImportJobCounters Counters,
     string RequestedBy,
@@ -42,60 +47,52 @@ public sealed record ImportJobSnapshot(
     string? FailureReason,
     int Version,
     string? TenantId = null,
-    string? ClientId = null);
+    string? ClientId = null,
+    Guid? DatasetId = null);
 
 /// <summary>
-/// One upload of an external extract. Tracks progress so a long import can be watched from the
+/// One processing run of a SPOL dataset. Tracks progress so a long import can be watched from the
 /// front end, and carries a heartbeat so a worker killed mid-run leaves evidence rather than a
 /// job that looks alive forever.
 /// </summary>
 public sealed class ImportJob
 {
-    private ImportJob(
-        Guid id,
-        string groupId,
-        string fileName,
-        string blobKey,
-        ImportJobStatus status,
-        ImportJobCounters counters,
-        string requestedBy,
-        DateTimeOffset createdAtUtc,
-        DateTimeOffset? startedAtUtc,
-        DateTimeOffset? finishedAtUtc,
-        DateTimeOffset? heartbeatAtUtc,
-        string? failureReason,
-        int version,
-        string? tenantId = null,
-        string? clientId = null)
+    private ImportJob(ImportJobSnapshot snapshot)
     {
-        Id = id;
-        GroupId = groupId;
-        FileName = fileName;
-        BlobKey = blobKey;
-        Status = status;
-        Counters = counters;
-        RequestedBy = requestedBy;
-        CreatedAtUtc = createdAtUtc;
-        StartedAtUtc = startedAtUtc;
-        FinishedAtUtc = finishedAtUtc;
-        HeartbeatAtUtc = heartbeatAtUtc;
-        FailureReason = failureReason;
-        Version = version;
-        TenantId = tenantId;
-        ClientId = clientId;
+        Id = snapshot.Id;
+        GroupId = snapshot.GroupId;
+        FileName = snapshot.FileName;
+        BlobKey = snapshot.BlobKey;
+        Status = snapshot.Status;
+        Counters = snapshot.Counters;
+        RequestedBy = snapshot.RequestedBy;
+        CreatedAtUtc = snapshot.CreatedAtUtc;
+        StartedAtUtc = snapshot.StartedAtUtc;
+        FinishedAtUtc = snapshot.FinishedAtUtc;
+        HeartbeatAtUtc = snapshot.HeartbeatAtUtc;
+        FailureReason = snapshot.FailureReason;
+        Version = snapshot.Version;
+        TenantId = snapshot.TenantId;
+        ClientId = snapshot.ClientId;
+        DatasetId = snapshot.DatasetId;
     }
 
     public Guid Id { get; }
 
     public string GroupId { get; }
 
+    /// <summary>The dataset's name when it was processed, or an earlier upload's file name.</summary>
     public string FileName { get; }
 
-    public string BlobKey { get; }
+    /// <summary>Where an earlier upload's file was kept. Null for a dataset.</summary>
+    public string? BlobKey { get; }
 
     public string? TenantId { get; }
 
     public string? ClientId { get; }
+
+    /// <summary>The dataset processed. Null for an earlier upload, or once the dataset is deleted.</summary>
+    public Guid? DatasetId { get; }
 
     public ImportJobStatus Status { get; private set; }
 
@@ -118,65 +115,48 @@ public sealed class ImportJob
     public bool IsTerminal => Status is ImportJobStatus.Completed or ImportJobStatus.Failed
         or ImportJobStatus.Abandoned;
 
+    /// <summary>Processes <paramref name="datasetId"/>'s rows, of which there are <paramref name="totalRows"/>.</summary>
     public static ImportJob Create(
         Guid id,
         string groupId,
-        string fileName,
-        string blobKey,
+        string datasetName,
+        Guid datasetId,
         string requestedBy,
         int totalRows,
-        DateTimeOffset now,
-        string? tenantId = null,
-        string? clientId = null)
+        DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
-        ArgumentException.ThrowIfNullOrWhiteSpace(blobKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(datasetName);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedBy);
         ArgumentOutOfRangeException.ThrowIfNegative(totalRows);
 
-        return new ImportJob(
+        return new ImportJob(new ImportJobSnapshot(
             id,
             groupId.Trim(),
-            fileName.Trim(),
-            blobKey.Trim(),
+            datasetName.Trim(),
+            BlobKey: null,
             ImportJobStatus.Pending,
             ImportJobCounters.Empty with { TotalRows = totalRows },
             requestedBy.Trim(),
             now,
-            startedAtUtc: null,
-            finishedAtUtc: null,
-            heartbeatAtUtc: null,
-            failureReason: null,
-            version: 1,
-            tenantId: tenantId,
-            clientId: clientId);
+            StartedAtUtc: null,
+            FinishedAtUtc: null,
+            HeartbeatAtUtc: null,
+            FailureReason: null,
+            Version: 1,
+            DatasetId: datasetId));
     }
 
     public static ImportJob FromSnapshot(ImportJobSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        return new ImportJob(
-            snapshot.Id,
-            snapshot.GroupId,
-            snapshot.FileName,
-            snapshot.BlobKey,
-            snapshot.Status,
-            snapshot.Counters,
-            snapshot.RequestedBy,
-            snapshot.CreatedAtUtc,
-            snapshot.StartedAtUtc,
-            snapshot.FinishedAtUtc,
-            snapshot.HeartbeatAtUtc,
-            snapshot.FailureReason,
-            snapshot.Version,
-            snapshot.TenantId,
-            snapshot.ClientId);
+        return new ImportJob(snapshot);
     }
 
     public ImportJobSnapshot ToSnapshot() => new(
         Id, GroupId, FileName, BlobKey, Status, Counters, RequestedBy,
-        CreatedAtUtc, StartedAtUtc, FinishedAtUtc, HeartbeatAtUtc, FailureReason, Version, TenantId, ClientId);
+        CreatedAtUtc, StartedAtUtc, FinishedAtUtc, HeartbeatAtUtc, FailureReason, Version, TenantId, ClientId,
+        DatasetId);
 
     public Result<ImportJob> Start(DateTimeOffset now)
     {
@@ -206,7 +186,8 @@ public sealed class ImportJob
             Matched = Counters.Matched + delta.Matched,
             Unmatched = Counters.Unmatched + delta.Unmatched,
             DuplicatesCollapsed = Counters.DuplicatesCollapsed + delta.DuplicatesCollapsed,
-            Invalid = Counters.Invalid + delta.Invalid
+            Invalid = Counters.Invalid + delta.Invalid,
+            UsersCreated = Counters.UsersCreated + delta.UsersCreated
         };
 
         HeartbeatAtUtc = now;
@@ -279,6 +260,9 @@ public static class ImportRejectionReasons
     public const string AssigneeUnmatched = "assignee_unmatched";
     public const string AssigneeAmbiguous = "assignee_ambiguous";
 
-    /// <summary>A file's rows for one CPH named different people. One was given the holding.</summary>
+    /// <summary>A CPH's items named different people. One was given the holding.</summary>
     public const string AssigneeConflict = "assignee_conflict";
+
+    /// <summary>An item named more than one person. The first was given the holding.</summary>
+    public const string AssigneeSeveral = "assignee_several";
 }

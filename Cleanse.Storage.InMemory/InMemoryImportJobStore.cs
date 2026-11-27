@@ -84,6 +84,12 @@ public sealed class InMemoryImportJobStore : IImportJobStore
         return Task.FromResult(active is null ? null : ImportJob.FromSnapshot(active));
     }
 
+    public Task<bool> HasActiveForDatasetAsync(Guid datasetId, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(_jobs.Values.Any(j => j.DatasetId == datasetId && IsActive(j.Status)));
+    }
+
     public Task<ImportJob?> LeaseNextPendingAsync(
         DateTimeOffset now,
         CancellationToken cancellationToken = default)
@@ -136,6 +142,7 @@ public sealed class InMemoryImportJobStore : IImportJobStore
     public Task<PagedResult<ImportJob>> SearchAsync(
         string? groupId,
         PageRequest page,
+        Guid? datasetId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(page);
@@ -143,6 +150,7 @@ public sealed class InMemoryImportJobStore : IImportJobStore
 
         var matched = _jobs.Values
             .Where(j => groupId is null || string.Equals(j.GroupId, groupId, StringComparison.Ordinal))
+            .Where(j => datasetId is null || j.DatasetId == datasetId)
             .ToList();
 
         var items = matched

@@ -68,6 +68,7 @@ public static class PostgresStorageServiceCollectionExtensions
         services.TryAddScoped<IHoldingActivityStore, PostgresHoldingActivityStore>();
         services.TryAddScoped<ICodedValueStore, PostgresCodedValueStore>();
         services.TryAddScoped<ISettingsStore, PostgresSettingsStore>();
+        services.TryAddScoped<ISpolDatasetStore, PostgresSpolDatasetStore>();
         services.TryAddScoped<IStorageDiagnostics, PostgresStorageDiagnostics>();
         return services;
     }

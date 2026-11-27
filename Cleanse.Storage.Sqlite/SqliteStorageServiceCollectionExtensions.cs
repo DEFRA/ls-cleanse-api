@@ -37,6 +37,7 @@ public static class SqliteStorageServiceCollectionExtensions
         services.TryAddScoped<IHoldingActivityStore, SqliteHoldingActivityStore>();
         services.TryAddScoped<ICodedValueStore, SqliteCodedValueStore>();
         services.TryAddScoped<ISettingsStore, SqliteSettingsStore>();
+        services.TryAddScoped<ISpolDatasetStore, SqliteSpolDatasetStore>();
         services.TryAddScoped<IStorageDiagnostics, SqliteStorageDiagnostics>();
 
         return services;

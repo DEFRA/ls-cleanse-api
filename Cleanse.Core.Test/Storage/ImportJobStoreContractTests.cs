@@ -16,14 +16,7 @@ public abstract class ImportJobStoreContractTests
     protected abstract IImportJobStore CreateStore();
 
     private static ImportJob NewJob(string groupId = TestData.Group, DateTimeOffset? at = null, int totalRows = 10) =>
-        ImportJob.Create(
-            Guid.NewGuid(),
-            groupId,
-            "extract.csv",
-            $"imports/{groupId}/{Guid.NewGuid()}.csv",
-            "alice",
-            totalRows,
-            at ?? Night1);
+        TestData.NewUploadJob(groupId, at ?? Night1, totalRows);
 
     /// <summary>Takes a job through to completion, which frees its group for the next one.</summary>
     private static async Task<ImportJob> SeedFinishedAsync(IImportJobStore store, string groupId, DateTimeOffset at)
@@ -42,8 +35,11 @@ public abstract class ImportJobStoreContractTests
         var store = CreateStore();
         var tenant = Guid.NewGuid().ToString();
         var client = Guid.NewGuid().ToString();
-        var job = ImportJob.Create(Guid.NewGuid(), "scoped", "extract.csv", "imports/scoped.csv",
-            "service", 1, Night1, tenant, client);
+        var job = ImportJob.FromSnapshot(NewJob("scoped", totalRows: 1).ToSnapshot() with
+        {
+            TenantId = tenant,
+            ClientId = client
+        });
         Assert.True(await store.TryCreateAsync(job));
         var leased = (await store.LeaseNextPendingAsync(Night1))!;
         Assert.Equal(tenant, leased.TenantId);

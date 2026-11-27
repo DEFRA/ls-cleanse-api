@@ -122,4 +122,12 @@
                  stripComments="false"/>
     </changeSet>
 
+    <changeSet id="0012-spol-datasets" author="cleanse" runOnChange="false" runInTransaction="false">
+        <comment>SPOL datasets and their rows, which the connector loads; import jobs name the dataset they processed and count the users they added.</comment>
+        <sqlFile path="sql/0012_spol_datasets.sql"
+                 relativeToChangelogFile="true"
+                 splitStatements="false"
+                 stripComments="false"/>
+    </changeSet>
+
 </databaseChangeLog>

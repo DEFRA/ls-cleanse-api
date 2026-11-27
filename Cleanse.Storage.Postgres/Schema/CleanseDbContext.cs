@@ -1,4 +1,5 @@
 using Cleanse.Core.Domain;
+using Cleanse.Core.Domain.Datasets;
 using Microsoft.EntityFrameworkCore;
 
 namespace Cleanse.Storage.Postgres.Schema;
@@ -35,6 +36,10 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
 
     internal DbSet<ServiceSettingsRow> ServiceSettings => Set<ServiceSettingsRow>();
 
+    internal DbSet<SpolDatasetRow> SpolDatasets => Set<SpolDatasetRow>();
+
+    internal DbSet<SpolDatasetItemRow> SpolDatasetItems => Set<SpolDatasetItemRow>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -52,6 +57,57 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
         ConfigureCodedValues(modelBuilder);
         ConfigureServiceSettings(modelBuilder);
         ConfigureHoldings(modelBuilder);
+        ConfigureSpolDatasets(modelBuilder);
+    }
+
+    /// <summary>
+    /// What the connector loads for an admin to process. A reset keeps them, as it does users.
+    /// Only the key's SHA-256 is kept, and a dataset's rows go with it.
+    /// </summary>
+    private static void ConfigureSpolDatasets(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<SpolDatasetRow>(entity =>
+        {
+            entity.ToTable(Db.SpolDatasets, table => table.HasCheckConstraint(
+                "ck_spol_datasets_status", "status IN ('Empty', 'Loading', 'Ready')"));
+
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(SpolDataset.MaxNameLength);
+            entity.Property(e => e.KeyHash).HasColumnName("key_hash").HasMaxLength(64);
+            entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(16);
+            entity.Property(e => e.RowCount).HasColumnName("row_count");
+            entity.Property(e => e.ExpectedRows).HasColumnName("expected_rows");
+            entity.Property(e => e.PageCount).HasColumnName("page_count");
+            entity.Property(e => e.CurrentLoadId).HasColumnName("current_load_id");
+            entity.Property(e => e.LoadStartedAtUtc).HasColumnName("load_started_at_utc");
+            entity.Property(e => e.LastLoadedAtUtc).HasColumnName("last_loaded_at_utc");
+            entity.Property(e => e.CreatedById).HasColumnName("created_by_id");
+            entity.Property(e => e.CreatedByName).HasColumnName("created_by_name");
+            entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc");
+            entity.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc");
+            entity.Property(e => e.Version).HasColumnName("version");
+
+            entity.HasIndex(e => new { e.CreatedAtUtc, e.Id })
+                .HasDatabaseName("ix_spol_datasets_created")
+                .IsDescending(true, true);
+        });
+
+        modelBuilder.Entity<SpolDatasetItemRow>(entity =>
+        {
+            entity.ToTable(Db.SpolDatasetItems);
+
+            entity.HasKey(e => new { e.DatasetId, e.ItemId });
+            entity.Property(e => e.DatasetId).HasColumnName("dataset_id");
+            entity.Property(e => e.ItemId).HasColumnName("item_id").ValueGeneratedNever();
+            entity.Property(e => e.Data).HasColumnName("data").HasColumnType("jsonb");
+
+            entity.HasOne<SpolDatasetRow>()
+                .WithMany()
+                .HasForeignKey(e => e.DatasetId)
+                .HasConstraintName("fk_spol_dataset_items_dataset")
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     /// <summary>
@@ -432,8 +488,21 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
             entity.Property(e => e.HeartbeatAtUtc).HasColumnName("heartbeat_at_utc");
             entity.Property(e => e.FailureReason).HasColumnName("failure_reason");
             entity.Property(e => e.Version).HasColumnName("version");
+            entity.Property(e => e.DatasetId).HasColumnName("dataset_id");
+            entity.Property(e => e.UsersCreated).HasColumnName("users_created");
 
-            // A double-click on upload cannot start two workers over the same group's issues.
+            // Deleting a dataset keeps its jobs and their reports.
+            entity.HasOne<SpolDatasetRow>()
+                .WithMany()
+                .HasForeignKey(e => e.DatasetId)
+                .HasConstraintName("fk_import_jobs_dataset")
+                .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasIndex(e => e.DatasetId)
+                .HasDatabaseName("ix_import_jobs_dataset")
+                .HasFilter("dataset_id IS NOT NULL");
+
+            // A double-click on Process cannot start two workers over the same group's issues.
             entity.HasIndex(e => e.GroupId)
                 .HasDatabaseName("ux_import_jobs_one_active_per_group")
                 .IsUnique()

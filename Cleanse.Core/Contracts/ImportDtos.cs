@@ -9,6 +9,7 @@ namespace Cleanse.Core.Contracts;
 /// </summary>
 public sealed record ExternalIssueRow
 {
+    /// <summary>The SharePoint item ID, or an earlier upload's row in its file.</summary>
     public required long RowNumber { get; init; }
 
     public required IssueId IssueId { get; init; }
@@ -19,7 +20,11 @@ public sealed record ExternalIssueRow
 
     public bool HasAssignee { get; init; }
 
+    /// <summary>The assignee as SPOL names them, or their email address when that is all it gives.</summary>
     public string? AssignedTo { get; init; }
+
+    /// <summary>Matched before <see cref="AssignedTo"/>, which is then matched by name only.</summary>
+    public string? AssignedEmail { get; init; }
 
     public IssuePriority? Priority { get; init; }
 
@@ -39,6 +44,9 @@ public sealed record ExternalIssueRow
 }
 
 public sealed record ExternalContactEvent(string Column, HistoryActionType ActionType, DateTimeOffset AtUtc);
+
+/// <summary>Someone an extract assigns work to. One with no email address is matched by name only.</summary>
+public sealed record ExternalAssignee(string? Email, string? Name);
 
 public sealed record ImportBatchResult(
     int RowsProcessed,
@@ -65,6 +73,16 @@ public sealed record ImportJobDto(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset? StartedAtUtc,
     DateTimeOffset? FinishedAtUtc,
-    string? FailureReason);
+    string? FailureReason,
+    Guid? DatasetId,
+    int UsersCreated,
+    string Source)
+{
+    /// <summary>A dataset's job, whose report names items by SharePoint item ID.</summary>
+    public const string DatasetSource = "dataset";
+
+    /// <summary>An earlier upload's job, whose report names rows in the file.</summary>
+    public const string FileSource = "file";
+}
 
 public sealed record ImportRejectionDto(long RowNumber, string? IssueId, string Reason, string Detail);

@@ -1,6 +1,7 @@
 using Cleanse.Core.Abstractions;
 using Cleanse.Core.Commands;
 using Cleanse.Core.Commands.CodedValues;
+using Cleanse.Core.Commands.Datasets;
 using Cleanse.Core.Commands.History;
 using Cleanse.Core.Commands.Holdings;
 using Cleanse.Core.Commands.Imports;
@@ -12,6 +13,7 @@ using Cleanse.Core.Contracts;
 using Cleanse.Core.Dispatching;
 using Cleanse.Core.Queries.Audit;
 using Cleanse.Core.Queries.CodedValues;
+using Cleanse.Core.Queries.Datasets;
 using Cleanse.Core.Queries.History;
 using Cleanse.Core.Queries.Holdings;
 using Cleanse.Core.Queries.Imports;
@@ -77,11 +79,17 @@ public static class CleanseCoreServiceCollectionExtensions
 
         AddCommand<UpdateSettingsCommand, SettingsDto, UpdateSettingsCommandHandler>(services);
 
-        AddCommand<CreateImportJobCommand, ImportJobDto, CreateImportJobCommandHandler>(services);
         AddCommand<ApplyImportBatchCommand, ImportBatchResult, ApplyImportBatchCommandHandler>(services);
+        AddCommand<RegisterImportAssigneesCommand, int, RegisterImportAssigneesCommandHandler>(services);
         AddCommand<CompleteImportJobCommand, ImportJobDto, CompleteImportJobCommandHandler>(services);
         AddCommand<FailImportJobCommand, ImportJobDto, FailImportJobCommandHandler>(services);
         AddCommand<ReapStalledImportsCommand, int, ReapStalledImportsCommandHandler>(services);
+
+        AddCommand<CreateSpolDatasetCommand, CreatedSpolDatasetDto, CreateSpolDatasetCommandHandler>(services);
+        AddCommand<RenameSpolDatasetCommand, SpolDatasetDto, RenameSpolDatasetCommandHandler>(services);
+        AddCommand<DeleteSpolDatasetCommand, Guid, DeleteSpolDatasetCommandHandler>(services);
+        AddCommand<LoadSpolDatasetPageCommand, SpolDatasetPageResultDto, LoadSpolDatasetPageCommandHandler>(services);
+        AddCommand<ProcessSpolDatasetCommand, ImportJobDto, ProcessSpolDatasetCommandHandler>(services);
 
         AddCommand<ResetDataCommand, ResetResultDto, ResetDataCommandHandler>(services);
 
@@ -102,6 +110,9 @@ public static class CleanseCoreServiceCollectionExtensions
         AddQuery<GetImportJobQuery, ImportJobDto, GetImportJobQueryHandler>(services);
         AddQuery<SearchImportJobsQuery, PagedResult<ImportJobDto>, SearchImportJobsQueryHandler>(services);
         AddQuery<GetImportRejectionsQuery, PagedResult<ImportRejectionDto>, GetImportRejectionsQueryHandler>(services);
+
+        AddQuery<GetSpolDatasetQuery, SpolDatasetDto, GetSpolDatasetQueryHandler>(services);
+        AddQuery<SearchSpolDatasetsQuery, PagedResult<SpolDatasetDto>, SearchSpolDatasetsQueryHandler>(services);
 
         return services;
     }

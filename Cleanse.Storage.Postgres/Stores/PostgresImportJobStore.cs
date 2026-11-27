@@ -45,6 +45,8 @@ internal sealed class PostgresImportJobStore(CleanseDbContext db) : IImportJobSt
         }
         else
         {
+            // Set when the job is created; only the database clears it, when the dataset is deleted.
+            row.DatasetId = existing.DatasetId;
             db.Entry(existing).CurrentValues.SetValues(row);
         }
 
@@ -64,6 +66,10 @@ internal sealed class PostgresImportJobStore(CleanseDbContext db) : IImportJobSt
 
         return row is null ? null : ToDomain(row);
     }
+
+    public Task<bool> HasActiveForDatasetAsync(Guid datasetId, CancellationToken cancellationToken = default) =>
+        db.ImportJobs.AsNoTracking()
+            .AnyAsync(r => r.DatasetId == datasetId && (r.Status == "Pending" || r.Status == "Processing"), cancellationToken);
 
     public async Task<ImportJob?> LeaseNextPendingAsync(
         DateTimeOffset now,
@@ -109,6 +115,7 @@ internal sealed class PostgresImportJobStore(CleanseDbContext db) : IImportJobSt
     public async Task<PagedResult<ImportJob>> SearchAsync(
         string? groupId,
         PageRequest page,
+        Guid? datasetId = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(page);
@@ -117,6 +124,11 @@ internal sealed class PostgresImportJobStore(CleanseDbContext db) : IImportJobSt
         if (groupId is not null)
         {
             query = query.Where(r => r.GroupId == groupId);
+        }
+
+        if (datasetId is not null)
+        {
+            query = query.Where(r => r.DatasetId == datasetId);
         }
 
         var total = await query.LongCountAsync(cancellationToken);
@@ -186,7 +198,7 @@ internal sealed class PostgresImportJobStore(CleanseDbContext db) : IImportJobSt
         Enum.Parse<ImportJobStatus>(row.Status),
         new ImportJobCounters(
             row.TotalRows, row.ProcessedRows, row.Matched, row.Unmatched,
-            row.DuplicatesCollapsed, row.Invalid),
+            row.DuplicatesCollapsed, row.Invalid, row.UsersCreated),
         row.RequestedBy,
         row.CreatedAtUtc,
         row.StartedAtUtc,
@@ -195,7 +207,8 @@ internal sealed class PostgresImportJobStore(CleanseDbContext db) : IImportJobSt
         row.FailureReason,
         row.Version,
         row.TenantId,
-        row.ClientId));
+        row.ClientId,
+        row.DatasetId));
 
     private static ImportJobRow ToRow(ImportJobSnapshot snapshot) => new()
     {
@@ -205,6 +218,7 @@ internal sealed class PostgresImportJobStore(CleanseDbContext db) : IImportJobSt
         GroupId = snapshot.GroupId,
         FileName = snapshot.FileName,
         BlobKey = snapshot.BlobKey,
+        DatasetId = snapshot.DatasetId,
         Status = snapshot.Status.ToString(),
         TotalRows = snapshot.Counters.TotalRows,
         ProcessedRows = snapshot.Counters.ProcessedRows,
@@ -212,6 +226,7 @@ internal sealed class PostgresImportJobStore(CleanseDbContext db) : IImportJobSt
         Unmatched = snapshot.Counters.Unmatched,
         DuplicatesCollapsed = snapshot.Counters.DuplicatesCollapsed,
         Invalid = snapshot.Counters.Invalid,
+        UsersCreated = snapshot.Counters.UsersCreated,
         RequestedBy = snapshot.RequestedBy,
         CreatedAtUtc = snapshot.CreatedAtUtc,
         StartedAtUtc = snapshot.StartedAtUtc,

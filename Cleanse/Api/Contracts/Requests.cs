@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
+using Cleanse.Core.Contracts;
 using Cleanse.Core.Domain;
+using Cleanse.Core.Domain.Datasets;
 
 namespace Cleanse.Api.Contracts;
 
@@ -90,3 +92,24 @@ public sealed record SetCodedValueActiveRequest([property: Required] bool? IsAct
 
 public sealed record UpdateSettingsRequest(
     [property: Required, Range(0, ServiceSettings.MaxMinimumIssueAgeDays)] int? MinimumIssueAgeDays);
+
+/// <summary>Without a name, the dataset is named after when it was created.</summary>
+public sealed record CreateSpolDatasetRequest(
+    [property: MaxLength(SpolDataset.MaxNameLength)] string? Name);
+
+public sealed record RenameSpolDatasetRequest(
+    [property: Required, MaxLength(SpolDataset.MaxNameLength)] string Name,
+    [property: Required] int? ExpectedVersion);
+
+public sealed record ProcessSpolDatasetRequest([property: Required] string GroupId);
+
+/// <summary>
+/// One page of a load. Every page of a load gives the same loadId, pageCount and totalRows; the
+/// first page of a new loadId replaces the dataset's rows.
+/// </summary>
+public sealed record SpolDatasetPageRequest(
+    Guid LoadId,
+    int Page,
+    int PageCount,
+    int TotalRows,
+    IReadOnlyList<SpolDatasetRowDto> Rows);

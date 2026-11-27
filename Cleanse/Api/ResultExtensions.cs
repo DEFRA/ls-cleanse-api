@@ -30,16 +30,27 @@ public static class ResultExtensions
             ErrorCodes.IssueNotFound
                 or ErrorCodes.RunNotFound
                 or ErrorCodes.HoldingNotFound
-                or ErrorCodes.CodedValueNotFound => StatusCodes.Status404NotFound,
+                or ErrorCodes.CodedValueNotFound
+                or ErrorCodes.DatasetNotFound => StatusCodes.Status404NotFound,
 
             ErrorCodes.IssueConcurrencyConflict
                 or ErrorCodes.HoldingConcurrencyConflict
                 or ErrorCodes.CodedValueDuplicateName
                 or ErrorCodes.RunAlreadyInProgress
                 or ErrorCodes.RunNotRunning
-                or ErrorCodes.IssueGroupMismatch => StatusCodes.Status409Conflict,
+                or ErrorCodes.IssueGroupMismatch
+                or ErrorCodes.ImportAlreadyInProgress
+                or ErrorCodes.DatasetConcurrencyConflict
+                or ErrorCodes.DatasetLoadSuperseded
+                or ErrorCodes.DatasetProcessing
+                or ErrorCodes.DatasetNotReady => StatusCodes.Status409Conflict,
+
+            // The same for an unknown dataset as for a wrong key.
+            ErrorCodes.DatasetUnauthorised => StatusCodes.Status401Unauthorized,
 
             ErrorCodes.ActingUserNotAllowed => StatusCodes.Status403Forbidden,
+
+            ErrorCodes.DatasetTooLarge => StatusCodes.Status413PayloadTooLarge,
 
             // Not the caller's fault and not permanent: the engine is switched off here.
             ErrorCodes.RulesEngineDisabled => StatusCodes.Status503ServiceUnavailable,
@@ -66,9 +77,11 @@ public static class ResultExtensions
 
     private static string TitleFor(int status) => status switch
     {
+        StatusCodes.Status401Unauthorized => "Unauthorized",
         StatusCodes.Status403Forbidden => "Forbidden",
         StatusCodes.Status404NotFound => "Not found",
         StatusCodes.Status409Conflict => "Conflict",
+        StatusCodes.Status413PayloadTooLarge => "Too large",
         StatusCodes.Status503ServiceUnavailable => "Unavailable",
         _ => "Invalid request"
     };

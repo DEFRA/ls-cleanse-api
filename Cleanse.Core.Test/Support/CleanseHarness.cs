@@ -48,6 +48,10 @@ internal sealed class CleanseHarness : IDisposable
 
     public InMemoryHoldingStore Holdings => _provider.GetRequiredService<InMemoryHoldingStore>();
 
+    public InMemoryImportJobStore Imports => _provider.GetRequiredService<InMemoryImportJobStore>();
+
+    public InMemorySpolDatasetStore Datasets => _provider.GetRequiredService<InMemorySpolDatasetStore>();
+
     public IUserStore Users => _provider.GetRequiredService<IUserStore>();
 
     /// <summary>Someone holdings can be assigned to, added before they sign in.</summary>

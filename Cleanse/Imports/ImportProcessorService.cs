@@ -1,13 +1,14 @@
 using Cleanse.Core.Abstractions;
 using Cleanse.Core.Commands.Imports;
 using Cleanse.Core.Domain;
+using Cleanse.Core.Domain.Datasets;
 using Cleanse.Core.Domain.Imports;
 
 namespace Cleanse.Api.Imports;
 
 /// <summary>
-/// Leases pending imports and applies them. Runs in the background so an upload returns straight
-/// away: 30,000 rows cannot be processed inside API Gateway's 29 second ceiling.
+/// Leases pending imports and applies their datasets' rows. Runs in the background so processing
+/// returns straight away: 30,000 items cannot be applied inside API Gateway's 29 second ceiling.
 /// </summary>
 public sealed class ImportProcessorService(
     IServiceScopeFactory scopeFactory,
@@ -94,39 +95,93 @@ public sealed class ImportProcessorService(
         ImportJob job,
         CancellationToken cancellationToken)
     {
-        var files = provider.GetRequiredService<IImportFileStore>();
+        var datasets = provider.GetRequiredService<ISpolDatasetStore>();
         var imports = provider.GetRequiredService<IImportJobStore>();
 
-        SpolBatch batch;
-        await using (var content = await files.OpenReadAsync(job.BlobKey, cancellationToken))
+        // A job from before datasets, or one whose dataset has gone, has nothing left to read.
+        var dataset = job.DatasetId is { } datasetId ? await datasets.GetAsync(datasetId, cancellationToken) : null;
+        if (dataset is null)
         {
-            // Collapsing duplicates needs the whole file in view, so rows are materialised before
-            // chunking. 30,000 rows is a few megabytes; streaming would make the rule unstable.
-            batch = SpolRowMapper.Project(SpolCsvReader.Read(content, job.GroupId));
+            throw new InvalidOperationException("The import's dataset no longer exists.");
         }
+
+        if (dataset.Status != SpolDatasetStatus.Ready)
+        {
+            throw new InvalidOperationException(
+                $"The dataset is {dataset.Status}, so not all of its rows are there. Load it again, then process it.");
+        }
+
+        // Collapsing duplicates needs every row in view, so rows are materialised before
+        // chunking. 30,000 rows is a few tens of megabytes; streaming would make the rule unstable.
+        var rows = SpolDatasetReader.Read(await datasets.ReadItemsAsync(dataset.Id, cancellationToken), job.GroupId)
+            .ToList();
+        var batch = SpolRowMapper.Project(rows);
 
         await RecordUnkeyedRowsAsync(imports, job, batch, cancellationToken);
         await RecordSuspectDatesAsync(imports, job, batch, cancellationToken);
         await RecordAssigneeConflictsAsync(imports, job, batch, cancellationToken);
+        await RecordSeveralAssigneesAsync(imports, job, batch, cancellationToken);
+
+        // Everyone Assigned to names becomes a user before any row is applied, so each holding
+        // can be given to its person. Saved after the counts above, which the job also carries.
+        var registered = await dispatcher.SendAsync(
+            new RegisterImportAssigneesCommand(job.Id, [.. rows.SelectMany(row => row.Assignees)]),
+            cancellationToken);
+        if (registered.IsFailure)
+        {
+            throw new InvalidOperationException($"Adding the assignees as users failed: {registered.Error}");
+        }
 
         foreach (var chunk in batch.Rows.Chunk(options.BatchSize))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var result = await dispatcher.SendAsync(
-                new ApplyImportBatchCommand(job.Id, chunk, Actor.Machine(SpolCsvReader.Source)),
+                new ApplyImportBatchCommand(job.Id, chunk, Actor.Machine(SpolDatasetReader.Source)),
                 cancellationToken);
 
             if (result.IsFailure)
             {
                 throw new InvalidOperationException(
-                    $"Applying a batch of {chunk.Length} rows failed: {result.Error}");
+                    $"Applying a batch of {chunk.Length} items failed: {result.Error}");
             }
         }
     }
 
     /// <summary>
-    /// Warnings only: a holding takes one assignee, so where a CPH's rows disagree one of them was
+    /// Warnings only: a holding takes one assignee, so where an item names several people the
+    /// first was chosen, and the team should check it.
+    /// </summary>
+    private async Task RecordSeveralAssigneesAsync(
+        IImportJobStore imports,
+        ImportJob job,
+        SpolBatch batch,
+        CancellationToken cancellationToken)
+    {
+        if (batch.SeveralAssignees.Count == 0)
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "Import {ImportJobId} has {Count} item(s) naming more than one person.",
+            job.Id, batch.SeveralAssignees.Count);
+
+        var rejections = batch.SeveralAssignees
+            .Take(options.MaxRejectionsRecorded)
+            .Select(row => new ImportJobRejection(
+                job.Id,
+                row.RowNumber,
+                row.ToIssueId().Value,
+                ImportRejectionReasons.AssigneeSeveral,
+                $"Assigned to names {row.Assignees.Count} people. The holding takes the first."))
+            .ToList();
+
+        await imports.AddRejectionsAsync(rejections, cancellationToken);
+    }
+
+    /// <summary>
+    /// Warnings only: a holding takes one assignee, so where a CPH's items disagree one of them was
     /// chosen, and the team should check it.
     /// </summary>
     private async Task RecordAssigneeConflictsAsync(
@@ -141,7 +196,7 @@ public sealed class ImportProcessorService(
         }
 
         logger.LogWarning(
-            "Import {ImportJobId} has {Count} CPH(s) whose rows name different assignees.",
+            "Import {ImportJobId} has {Count} CPH(s) whose items name different assignees.",
             job.Id, batch.AssigneeConflicts.Count);
 
         var rejections = batch.AssigneeConflicts
@@ -151,14 +206,14 @@ public sealed class ImportProcessorService(
                 c.Row.RowNumber,
                 c.Row.ToIssueId().Value,
                 ImportRejectionReasons.AssigneeConflict,
-                $"Rows {string.Join(", ", c.NamingRows)} for CPH {c.Row.Cph?.Trim()} name different assignees. " +
-                $"The holding takes row {c.Row.RowNumber}'s."))
+                $"Items {string.Join(", ", c.NamingRows)} for CPH {c.Row.Cph?.Trim()} name different assignees. " +
+                $"The holding takes item {c.Row.RowNumber}'s."))
             .ToList();
 
         await imports.AddRejectionsAsync(rejections, cancellationToken);
     }
 
-    /// <summary>Warnings only: the row is still applied exactly as the source states it.</summary>
+    /// <summary>Warnings only: the item is still applied exactly as the source states it.</summary>
     private async Task RecordSuspectDatesAsync(
         IImportJobStore imports,
         ImportJob job,
@@ -171,7 +226,7 @@ public sealed class ImportProcessorService(
         }
 
         logger.LogWarning(
-            "Import {ImportJobId} has {Count} row(s) with suspect dates.", job.Id, batch.SuspectDates.Count);
+            "Import {ImportJobId} has {Count} item(s) with suspect dates.", job.Id, batch.SuspectDates.Count);
 
         var rejections = batch.SuspectDates
             .Take(options.MaxRejectionsRecorded)
@@ -187,7 +242,7 @@ public sealed class ImportProcessorService(
     }
 
     /// <summary>
-    /// Rows with no CPH or rule number, plus the duplicates that lost the collapse. Counted up
+    /// Items with no CPH or rule number, plus the duplicates that lost the collapse. Counted up
     /// front so the progress percentage can still reach 100.
     /// </summary>
     private async Task RecordUnkeyedRowsAsync(
@@ -205,7 +260,7 @@ public sealed class ImportProcessorService(
                     row.RowNumber,
                     null,
                     ImportRejectionReasons.InvalidRow,
-                    $"Row has no usable key (CPH '{row.Cph ?? "<blank>"}', rule '{row.RuleNo ?? "<blank>"}')."))
+                    $"Item has no usable key (CPH '{row.Cph ?? "<blank>"}', rule '{row.RuleNo ?? "<blank>"}')."))
                 .ToList();
 
             await imports.AddRejectionsAsync(rejections, cancellationToken);

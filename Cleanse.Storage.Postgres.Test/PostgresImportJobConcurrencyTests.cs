@@ -15,9 +15,7 @@ public sealed class PostgresImportJobConcurrencyTests(PostgresFixture fixture) :
 {
     private readonly PostgresStoreHarness _harness = new(fixture);
 
-    private static ImportJob NewJob(string groupId, DateTimeOffset at) =>
-        ImportJob.Create(
-            Guid.NewGuid(), groupId, "extract.csv", $"imports/{groupId}/{Guid.NewGuid()}.csv", "alice", 10, at);
+    private static ImportJob NewJob(string groupId, DateTimeOffset at) => TestData.NewUploadJob(groupId, at);
 
     [Fact]
     public async Task Concurrent_workers_never_lease_the_same_job()

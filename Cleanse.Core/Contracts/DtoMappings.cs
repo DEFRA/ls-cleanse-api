@@ -1,5 +1,6 @@
 using Cleanse.Core.Abstractions;
 using Cleanse.Core.Domain;
+using Cleanse.Core.Domain.Datasets;
 using Cleanse.Core.Domain.Imports;
 
 namespace Cleanse.Core.Contracts;
@@ -153,5 +154,30 @@ internal static class DtoMappings
         job.CreatedAtUtc,
         job.StartedAtUtc,
         job.FinishedAtUtc,
-        job.FailureReason);
+        job.FailureReason,
+        job.DatasetId,
+        job.Counters.UsersCreated,
+        // A dataset's job has no file, and keeps that once its dataset is deleted.
+        job.BlobKey is null ? ImportJobDto.DatasetSource : ImportJobDto.FileSource);
+
+    /// <summary>Pass the dataset's newest import job, or null when it has never been processed.</summary>
+    public static SpolDatasetDto ToDto(this SpolDataset dataset, ImportJob? lastProcessing) => new(
+        dataset.Id,
+        dataset.Name,
+        dataset.Status.ToString().ToLowerInvariant(),
+        dataset.RowCount,
+        dataset.ExpectedRows,
+        dataset.CreatedByName,
+        dataset.CreatedAtUtc,
+        dataset.UpdatedAtUtc,
+        dataset.LoadStartedAtUtc,
+        dataset.LastLoadedAtUtc,
+        lastProcessing is null
+            ? null
+            : new SpolDatasetProcessingDto(
+                lastProcessing.Id,
+                lastProcessing.Status.ToString().ToLowerInvariant(),
+                lastProcessing.CreatedAtUtc,
+                lastProcessing.FinishedAtUtc),
+        dataset.Version);
 }
