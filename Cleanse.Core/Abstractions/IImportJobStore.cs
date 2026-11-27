@@ -8,7 +8,7 @@ public interface IImportJobStore
 
     /// <summary>
     /// Fails when the group already has a pending or processing job. Relational providers back
-    /// this with a unique partial index, so two concurrent uploads cannot both win.
+    /// this with a unique partial index, so two requests to process at once cannot both win.
     /// </summary>
     Task<bool> TryCreateAsync(ImportJob job, CancellationToken cancellationToken = default);
 

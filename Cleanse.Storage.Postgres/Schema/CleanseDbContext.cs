@@ -502,7 +502,7 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
                 .HasDatabaseName("ix_import_jobs_dataset")
                 .HasFilter("dataset_id IS NOT NULL");
 
-            // A double-click on upload cannot start two workers over the same group's issues.
+            // A double-click on Process cannot start two workers over the same group's issues.
             entity.HasIndex(e => e.GroupId)
                 .HasDatabaseName("ux_import_jobs_one_active_per_group")
                 .IsUnique()
