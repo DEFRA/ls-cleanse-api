@@ -7,6 +7,7 @@ using Cleanse.Core.Commands.Holdings;
 using Cleanse.Core.Commands.Imports;
 using Cleanse.Core.Commands.Issues;
 using Cleanse.Core.Commands.Maintenance;
+using Cleanse.Core.Commands.Mi;
 using Cleanse.Core.Commands.Runs;
 using Cleanse.Core.Commands.Settings;
 using Cleanse.Core.Contracts;
@@ -18,6 +19,7 @@ using Cleanse.Core.Queries.History;
 using Cleanse.Core.Queries.Holdings;
 using Cleanse.Core.Queries.Imports;
 using Cleanse.Core.Queries.Issues;
+using Cleanse.Core.Queries.Mi;
 using Cleanse.Core.Queries.Runs;
 using Cleanse.Core.Queries.Settings;
 using Cleanse.Core.Users;
@@ -92,6 +94,11 @@ public static class CleanseCoreServiceCollectionExtensions
         AddCommand<ProcessSpolDatasetCommand, ImportJobDto, ProcessSpolDatasetCommandHandler>(services);
 
         AddCommand<ResetDataCommand, ResetResultDto, ResetDataCommandHandler>(services);
+
+        AddCommand<RefreshMiCommand, MiRefreshResultDto, RefreshMiCommandHandler>(services);
+        AddQuery<GetMiStatusQuery, MiStatusDto, GetMiStatusQueryHandler>(services);
+        AddQuery<GetMiWorkQuery, MiWorkDto, GetMiWorkQueryHandler>(services);
+        AddQuery<GetMiBacklogQuery, MiBacklogDto, GetMiBacklogQueryHandler>(services);
 
         AddQuery<GetIssueQuery, IssueDto, GetIssueQueryHandler>(services);
         AddQuery<SearchIssuesQuery, PagedResult<IssueDto>, SearchIssuesQueryHandler>(services);

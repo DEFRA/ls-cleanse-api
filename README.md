@@ -207,6 +207,32 @@ The API also exposes the run lifecycle used by the rules engine (`POST /v1/runs`
 `/v1/runs/{runId}/detections`, `/complete` and `/abandon`) and
 `POST /v1/maintenance/expire-suppressions`, which sweeps lapsed suppressions.
 
+### MI dashboard
+
+The figures for the front-end's MI dashboard. They are read from a summary of the issues' history
+that a background refresh keeps up to date, so a request never replays the history itself.
+
+| Method | Route                              | Purpose                                                                                     |
+| ------ | ---------------------------------- | ------------------------------------------------------------------------------------------- |
+| `GET`  | `/v1/groups/{groupId}/mi/work`     | Work done in Cleanse over a period: outcomes, actions and notes, by person, type, reason and rule. |
+| `GET`  | `/v1/groups/{groupId}/mi/backlog`  | How the issues, or with `unit=holdings` the holdings, stood over a period, whoever changed them. |
+| `GET`  | `/v1/groups/{groupId}/mi/status`   | When the figures were last brought up to date, where the history starts, and whether a rebuild is under way. |
+| `POST` | `/v1/groups/{groupId}/mi/rebuild`  | Rebuild the figures from the history, in the background. Returns `202` at once.             |
+
+`from` and `to` are UK dates (`yyyy-MM-dd`), both included, and default to the last 7 days, cut to
+where the history starts. `interval` is `day`, `week` (from Monday) or `month`. Work also takes
+`ruleId` and `userId`; the backlog takes `ruleId` (issues only) and `unit`. Anything invalid, or more
+than 400 points, is a `400` that says why, and a group other than the configured one is a `404`.
+Only changes people made in Cleanse count as work: changes from the rules, SPOL and suppressions
+ending are not anyone's work, though they move the backlog. The work figures name people, so only
+the front-end may read them or ask for a rebuild.
+
+Every refresh rebuilds the whole summary in Cleanse.Core, the same way in every store, when a cheap
+fingerprint of the history has changed, and at least once a day. The summary is replaced in one
+transaction, so the dashboard shows the old figures until the new ones are complete, and a
+PostgreSQL advisory lock keeps two instances from writing at once. A reset deletes the summary with
+everything else.
+
 ### Users and diagnostics
 
 | Method | Route                | Purpose                                                                                      |
@@ -300,6 +326,14 @@ non-secret values live in `DEFRA/cdp-app-config` and secrets are set in the CDP 
 | `DailyRunAtUtc` | `01:00:00` | Time of day, in UTC.                                          |
 | `BatchSize`     | `500`      | Records evaluated between writes.                             |
 | `StaleAfter`    | `00:15:00` | A run that reports no progress for this long is abandoned.    |
+
+### MI dashboard settings (`Mi`)
+
+| Key             | Default    | Meaning                                                                                  |
+| --------------- | ---------- | ---------------------------------------------------------------------------------------- |
+| `Enabled`       | `true`     | Refresh the dashboard's figures in this instance. Off, the dashboard shows what is there and a rebuild gets `503`. |
+| `CheckInterval` | `00:02:00` | How often to check for changes and rebuild if there are any. The figures are at most this, plus a rebuild, behind. |
+| `StartupDelay`  | `00:00:30` | How long after startup the first check waits, unless a rebuild is asked for first.       |
 
 ### API settings (`Api`)
 

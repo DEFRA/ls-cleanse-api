@@ -48,6 +48,8 @@ internal sealed class SqliteHarness : IAsyncDisposable
 
     public SqliteSpolDatasetStore Datasets => new(_database);
 
+    public SqliteMiStore Mi => new(_database);
+
     public ValueTask DisposeAsync() => _database.DisposeAsync();
 }
 
@@ -152,6 +154,27 @@ public sealed class SqliteSettingsStoreTests : SettingsStoreContractTests, IAsyn
     private readonly SqliteHarness _harness = new();
 
     protected override ISettingsStore CreateStore() => _harness.Settings;
+
+    public ValueTask DisposeAsync() => _harness.DisposeAsync();
+}
+
+public sealed class SqliteMiStoreTests : MiStoreContractTests, IAsyncDisposable
+{
+    private readonly SqliteHarness _harness = new();
+
+    protected override IMiStore CreateStore() => _harness.Mi;
+
+    protected override IIssueStore CreateIssueStore() => _harness.Issues;
+
+    protected override IAuditStore CreateAuditStore() => _harness.Audit;
+
+    protected override IHoldingStore CreateHoldingStore() => _harness.Holdings;
+
+    protected override IHoldingActivityStore CreateActivityStore() => _harness.Activity;
+
+    protected override ICodedValueStore CreateCodedValueStore() => _harness.CodedValues;
+
+    protected override IRuleRunStore CreateRuleRunStore() => _harness.Runs;
 
     public ValueTask DisposeAsync() => _harness.DisposeAsync();
 }

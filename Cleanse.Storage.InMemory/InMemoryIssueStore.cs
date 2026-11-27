@@ -22,6 +22,10 @@ public sealed class InMemoryIssueStore : IIssueStore
 
     public int Count => _issues.Count;
 
+    /// <summary>The group's issues as stored now, for the dashboard's summary.</summary>
+    internal IReadOnlyList<IssueSnapshot> Snapshot(string groupId) =>
+        [.. _issues.Values.Where(s => string.Equals(s.GroupId, groupId, StringComparison.Ordinal))];
+
     /// <summary>
     /// Hard delete. Returns the ids removed so the history and audit logs, which are keyed by
     /// issue rather than by group, can be cleared to match.

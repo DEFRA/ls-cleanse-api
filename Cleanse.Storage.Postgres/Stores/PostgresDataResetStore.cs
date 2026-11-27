@@ -80,6 +80,12 @@ internal sealed class PostgresDataResetStore(CleanseDbContext db) : IDataResetSt
             $"DELETE FROM {Db.Holdings}",
             $"DELETE FROM {Db.Holdings} WHERE {Db.Holding.GroupId} = @group");
 
+        // The dashboard's summary is built from what has just gone, so it goes too.
+        foreach (var table in Db.MiTables)
+        {
+            await DeleteAsync($"DELETE FROM {table}", $"DELETE FROM {table} WHERE group_id = @group");
+        }
+
         db.DataResets.Add(new DataResetRow
         {
             AtUtc = at,

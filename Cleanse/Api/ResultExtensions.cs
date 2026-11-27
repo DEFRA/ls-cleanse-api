@@ -31,6 +31,7 @@ public static class ResultExtensions
                 or ErrorCodes.RunNotFound
                 or ErrorCodes.HoldingNotFound
                 or ErrorCodes.CodedValueNotFound
+                or ErrorCodes.GroupNotFound
                 or ErrorCodes.DatasetNotFound => StatusCodes.Status404NotFound,
 
             ErrorCodes.IssueConcurrencyConflict
@@ -53,7 +54,8 @@ public static class ResultExtensions
             ErrorCodes.DatasetTooLarge => StatusCodes.Status413PayloadTooLarge,
 
             // Not the caller's fault and not permanent: the engine is switched off here.
-            ErrorCodes.RulesEngineDisabled => StatusCodes.Status503ServiceUnavailable,
+            ErrorCodes.RulesEngineDisabled
+                or ErrorCodes.MiRefreshDisabled => StatusCodes.Status503ServiceUnavailable,
 
             _ => StatusCodes.Status400BadRequest
         };

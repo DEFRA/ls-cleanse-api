@@ -16,7 +16,8 @@ public sealed class InMemoryDataResetStore(
     InMemoryRuleRunStore runs,
     InMemoryImportJobStore imports,
     InMemoryHoldingStore holdings,
-    InMemoryHoldingActivityStore activity) : IDataResetStore
+    InMemoryHoldingActivityStore activity,
+    InMemoryMiStore mi) : IDataResetStore
 {
     private DataResetRecord? _lastReset;
 
@@ -40,6 +41,7 @@ public sealed class InMemoryDataResetStore(
         var (jobs, rejections) = imports.Clear(groupId);
         var holdingsRemoved = holdings.Clear(groupId);
         var (notes, actions) = activity.Clear(groupId);
+        mi.Clear(groupId);
 
         _lastReset = new DataResetRecord(at, groupId ?? "all", actorId, issueIds.Count);
 

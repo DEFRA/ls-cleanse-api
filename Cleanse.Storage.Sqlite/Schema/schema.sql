@@ -298,3 +298,90 @@ CREATE INDEX IF NOT EXISTS ix_holding_actions_holding
     ON holding_actions (group_id, cph, created_at_utc DESC, sequence DESC);
 
 CREATE INDEX IF NOT EXISTS ix_holding_actions_created ON holding_actions (created_at_utc);
+
+-- The MI dashboard's summary, rebuilt whole from the tables above by each refresh and emptied by a
+-- reset. Days are UK calendar days as yyyy-MM-dd, which sorts as text.
+CREATE TABLE IF NOT EXISTS mi_refresh (
+    group_id               TEXT    NOT NULL PRIMARY KEY,
+    built_at_utc           TEXT    NOT NULL,
+    checked_at_utc         TEXT    NOT NULL,
+    fingerprint            TEXT    NOT NULL,
+    version                INTEGER NOT NULL,
+    duration_milliseconds  INTEGER NOT NULL,
+    history_from_utc       TEXT        NULL,
+    issues                 INTEGER NOT NULL,
+    events                 INTEGER NOT NULL,
+    mismatches             INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS mi_issue_states (
+    group_id             TEXT NOT NULL,
+    issue_id             TEXT NOT NULL,
+    rule_id              TEXT NOT NULL,
+    cph                  TEXT     NULL,
+    status               TEXT NOT NULL,
+    workflow_status      TEXT NOT NULL,
+    reason_id            TEXT     NULL,
+    reason_name          TEXT     NULL,
+    first_raised_at_utc  TEXT NOT NULL,
+    first_raised_day     TEXT NOT NULL,
+    last_changed_at_utc  TEXT NOT NULL,
+    PRIMARY KEY (group_id, issue_id)
+);
+
+CREATE TABLE IF NOT EXISTS mi_holding_states (
+    group_id                   TEXT    NOT NULL,
+    cph                        TEXT    NOT NULL,
+    status                     TEXT    NOT NULL,
+    has_active_issue           INTEGER NOT NULL,
+    open_issues                INTEGER NOT NULL,
+    oldest_open_raised_at_utc  TEXT        NULL,
+    oldest_open_raised_day     TEXT        NULL,
+    in_progress_since_utc      TEXT        NULL,
+    last_worked_at_utc         TEXT        NULL,
+    assigned_user_id           TEXT        NULL,
+    assignee_name              TEXT        NULL,
+    PRIMARY KEY (group_id, cph)
+);
+
+CREATE TABLE IF NOT EXISTS mi_events (
+    group_id              TEXT    NOT NULL,
+    sequence              INTEGER NOT NULL,
+    at_utc                TEXT    NOT NULL,
+    day                   TEXT    NOT NULL,
+    unit                  TEXT    NOT NULL,
+    kind                  TEXT    NOT NULL,
+    source                TEXT    NOT NULL,
+    issue_id              TEXT        NULL,
+    rule_id               TEXT        NULL,
+    cph                   TEXT        NULL,
+    user_id               TEXT        NULL,
+    user_name             TEXT        NULL,
+    from_status           TEXT        NULL,
+    to_status             TEXT        NULL,
+    from_workflow         TEXT        NULL,
+    to_workflow           TEXT        NULL,
+    reason_id             TEXT        NULL,
+    reason_name           TEXT        NULL,
+    open_change           TEXT        NULL,
+    open_delta            INTEGER NOT NULL,
+    elapsed_days          INTEGER     NULL,
+    inactive_now          INTEGER     NULL,
+    actions_since_closed  INTEGER     NULL,
+    PRIMARY KEY (group_id, sequence)
+);
+
+CREATE INDEX IF NOT EXISTS ix_mi_events_day ON mi_events (group_id, day);
+
+CREATE INDEX IF NOT EXISTS ix_mi_events_person ON mi_events (group_id, user_id, day) WHERE source = 'cleanse';
+
+CREATE TABLE IF NOT EXISTS mi_daily_changes (
+    group_id  TEXT    NOT NULL,
+    unit      TEXT    NOT NULL,
+    day       TEXT    NOT NULL,
+    rule_id   TEXT    NOT NULL,
+    status    TEXT    NOT NULL,
+    state     TEXT    NOT NULL,
+    delta     INTEGER NOT NULL,
+    PRIMARY KEY (group_id, unit, day, rule_id, status, state)
+);

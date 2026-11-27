@@ -1,6 +1,9 @@
+using System.Text.RegularExpressions;
 using Cleanse.Core.Domain;
 using Cleanse.Core.Domain.Datasets;
+using Cleanse.Core.Domain.Mi;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace Cleanse.Storage.Postgres.Schema;
 
@@ -40,6 +43,16 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
 
     internal DbSet<SpolDatasetItemRow> SpolDatasetItems => Set<SpolDatasetItemRow>();
 
+    internal DbSet<MiRefreshRow> MiRefresh => Set<MiRefreshRow>();
+
+    internal DbSet<MiIssueStateRow> MiIssueStates => Set<MiIssueStateRow>();
+
+    internal DbSet<MiHoldingStateRow> MiHoldingStates => Set<MiHoldingStateRow>();
+
+    internal DbSet<MiEventRow> MiEvents => Set<MiEventRow>();
+
+    internal DbSet<MiDailyChangeRow> MiDailyChanges => Set<MiDailyChangeRow>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -58,6 +71,72 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
         ConfigureServiceSettings(modelBuilder);
         ConfigureHoldings(modelBuilder);
         ConfigureSpolDatasets(modelBuilder);
+        ConfigureMi(modelBuilder);
+    }
+
+    /// <summary>
+    /// The MI dashboard's summary, rebuilt whole from the tables above by each refresh and emptied
+    /// by a reset. No foreign keys: nothing points at it, and it must not hold up a delete.
+    /// </summary>
+    private static void ConfigureMi(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<MiRefreshRow>(entity =>
+        {
+            entity.ToTable(Db.MiRefresh);
+            entity.HasKey(e => e.GroupId);
+            SnakeCaseColumns(entity);
+        });
+
+        modelBuilder.Entity<MiIssueStateRow>(entity =>
+        {
+            entity.ToTable(Db.MiIssueStates);
+            entity.HasKey(e => new { e.GroupId, e.IssueId });
+            SnakeCaseColumns(entity);
+        });
+
+        modelBuilder.Entity<MiHoldingStateRow>(entity =>
+        {
+            entity.ToTable(Db.MiHoldingStates);
+            entity.HasKey(e => new { e.GroupId, e.Cph });
+            SnakeCaseColumns(entity);
+
+            // The longest open holdings.
+            entity.HasIndex(e => new { e.GroupId, e.OldestOpenRaisedAtUtc })
+                .HasDatabaseName("ix_mi_holding_states_open")
+                .HasFilter($"status IN ('{HoldingStatus.Todo.ToWire()}', '{HoldingStatus.InProgress.ToWire()}')");
+        });
+
+        modelBuilder.Entity<MiEventRow>(entity =>
+        {
+            entity.ToTable(Db.MiEvents);
+            entity.HasKey(e => new { e.GroupId, e.Sequence });
+            SnakeCaseColumns(entity);
+
+            // Every figure for a period.
+            entity.HasIndex(e => new { e.GroupId, e.Day }).HasDatabaseName("ix_mi_events_day");
+
+            // One person's work.
+            entity.HasIndex(e => new { e.GroupId, e.UserId, e.Day })
+                .HasDatabaseName("ix_mi_events_person")
+                .HasFilter($"source = '{MiSource.Cleanse.ToWire()}'");
+        });
+
+        modelBuilder.Entity<MiDailyChangeRow>(entity =>
+        {
+            entity.ToTable(Db.MiDailyChanges);
+            entity.HasKey(e => new { e.GroupId, e.Unit, e.Day, e.RuleId, e.Status, e.State });
+            SnakeCaseColumns(entity);
+        });
+    }
+
+    /// <summary>Column names as the rest of the schema spells them: GroupId is group_id.</summary>
+    private static void SnakeCaseColumns<T>(EntityTypeBuilder<T> entity)
+        where T : class
+    {
+        foreach (var property in entity.Metadata.GetProperties())
+        {
+            property.SetColumnName(Regex.Replace(property.Name, "(?<=[a-z0-9])([A-Z])", "_$1").ToLowerInvariant());
+        }
     }
 
     /// <summary>
@@ -428,6 +507,11 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
                 .HasDatabaseName("ix_audit_entries_run")
                 .IsDescending(false, true, true)
                 .HasFilter("run_id IS NOT NULL");
+
+            // The MI refresh reads, and fingerprints, only the issue entries that change a figure.
+            entity.HasIndex(e => e.Sequence)
+                .HasDatabaseName("ix_audit_entries_mi")
+                .HasFilter(Db.MiAuditFilter);
         });
 
     private static void ConfigureIssueHistory(ModelBuilder modelBuilder) =>

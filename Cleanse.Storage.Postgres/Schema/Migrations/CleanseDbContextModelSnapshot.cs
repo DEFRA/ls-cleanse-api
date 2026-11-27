@@ -79,6 +79,10 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Sequence")
+                        .HasDatabaseName("ix_audit_entries_mi")
+                        .HasFilter("issue_id IS NOT NULL AND kind IN ('IssueReactivated', 'IssueWorkflowStatusChanged', 'IssueSuppressed', 'IssueSuppressionExpired', 'IssueExternalStateApplied')");
+
                     b.HasIndex("IssueId", "AtUtc", "Sequence")
                         .IsDescending(false, true, true)
                         .HasDatabaseName("ix_audit_entries_issue")
@@ -719,6 +723,308 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
 
                             t.HasCheckConstraint("ck_issues_workflow_status", "workflow_status IN ('todo', 'in-progress', 'suppressed', 'resolved', 'nonactionable')");
                         });
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.MiDailyChangeRow", b =>
+                {
+                    b.Property<string>("GroupId")
+                        .HasColumnType("text")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("Unit")
+                        .HasColumnType("text")
+                        .HasColumnName("unit");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date")
+                        .HasColumnName("day");
+
+                    b.Property<string>("RuleId")
+                        .HasColumnType("text")
+                        .HasColumnName("rule_id");
+
+                    b.Property<string>("Status")
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<string>("State")
+                        .HasColumnType("text")
+                        .HasColumnName("state");
+
+                    b.Property<int>("Delta")
+                        .HasColumnType("integer")
+                        .HasColumnName("delta");
+
+                    b.HasKey("GroupId", "Unit", "Day", "RuleId", "Status", "State");
+
+                    b.ToTable("mi_daily_changes", (string)null);
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.MiEventRow", b =>
+                {
+                    b.Property<string>("GroupId")
+                        .HasColumnType("text")
+                        .HasColumnName("group_id");
+
+                    b.Property<long>("Sequence")
+                        .HasColumnType("bigint")
+                        .HasColumnName("sequence");
+
+                    b.Property<int?>("ActionsSinceClosed")
+                        .HasColumnType("integer")
+                        .HasColumnName("actions_since_closed");
+
+                    b.Property<DateTimeOffset>("AtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at_utc");
+
+                    b.Property<string>("Cph")
+                        .HasColumnType("text")
+                        .HasColumnName("cph");
+
+                    b.Property<DateOnly>("Day")
+                        .HasColumnType("date")
+                        .HasColumnName("day");
+
+                    b.Property<int?>("ElapsedDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("elapsed_days");
+
+                    b.Property<string>("FromStatus")
+                        .HasColumnType("text")
+                        .HasColumnName("from_status");
+
+                    b.Property<string>("FromWorkflow")
+                        .HasColumnType("text")
+                        .HasColumnName("from_workflow");
+
+                    b.Property<bool?>("InactiveNow")
+                        .HasColumnType("boolean")
+                        .HasColumnName("inactive_now");
+
+                    b.Property<string>("IssueId")
+                        .HasColumnType("text")
+                        .HasColumnName("issue_id");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("OpenChange")
+                        .HasColumnType("text")
+                        .HasColumnName("open_change");
+
+                    b.Property<int>("OpenDelta")
+                        .HasColumnType("integer")
+                        .HasColumnName("open_delta");
+
+                    b.Property<Guid?>("ReasonId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reason_id");
+
+                    b.Property<string>("ReasonName")
+                        .HasColumnType("text")
+                        .HasColumnName("reason_name");
+
+                    b.Property<string>("RuleId")
+                        .HasColumnType("text")
+                        .HasColumnName("rule_id");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("source");
+
+                    b.Property<string>("ToStatus")
+                        .HasColumnType("text")
+                        .HasColumnName("to_status");
+
+                    b.Property<string>("ToWorkflow")
+                        .HasColumnType("text")
+                        .HasColumnName("to_workflow");
+
+                    b.Property<string>("Unit")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("unit");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("UserName")
+                        .HasColumnType("text")
+                        .HasColumnName("user_name");
+
+                    b.HasKey("GroupId", "Sequence");
+
+                    b.HasIndex("GroupId", "Day")
+                        .HasDatabaseName("ix_mi_events_day");
+
+                    b.HasIndex("GroupId", "UserId", "Day")
+                        .HasDatabaseName("ix_mi_events_person")
+                        .HasFilter("source = 'cleanse'");
+
+                    b.ToTable("mi_events", (string)null);
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.MiHoldingStateRow", b =>
+                {
+                    b.Property<string>("GroupId")
+                        .HasColumnType("text")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("Cph")
+                        .HasColumnType("text")
+                        .HasColumnName("cph");
+
+                    b.Property<Guid?>("AssignedUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("assigned_user_id");
+
+                    b.Property<string>("AssigneeName")
+                        .HasColumnType("text")
+                        .HasColumnName("assignee_name");
+
+                    b.Property<bool>("HasActiveIssue")
+                        .HasColumnType("boolean")
+                        .HasColumnName("has_active_issue");
+
+                    b.Property<DateTimeOffset?>("InProgressSinceUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("in_progress_since_utc");
+
+                    b.Property<DateTimeOffset?>("LastWorkedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_worked_at_utc");
+
+                    b.Property<DateTimeOffset?>("OldestOpenRaisedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("oldest_open_raised_at_utc");
+
+                    b.Property<DateOnly?>("OldestOpenRaisedDay")
+                        .HasColumnType("date")
+                        .HasColumnName("oldest_open_raised_day");
+
+                    b.Property<int>("OpenIssues")
+                        .HasColumnType("integer")
+                        .HasColumnName("open_issues");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.HasKey("GroupId", "Cph");
+
+                    b.HasIndex("GroupId", "OldestOpenRaisedAtUtc")
+                        .HasDatabaseName("ix_mi_holding_states_open")
+                        .HasFilter("status IN ('todo', 'in-progress')");
+
+                    b.ToTable("mi_holding_states", (string)null);
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.MiIssueStateRow", b =>
+                {
+                    b.Property<string>("GroupId")
+                        .HasColumnType("text")
+                        .HasColumnName("group_id");
+
+                    b.Property<string>("IssueId")
+                        .HasColumnType("text")
+                        .HasColumnName("issue_id");
+
+                    b.Property<string>("Cph")
+                        .HasColumnType("text")
+                        .HasColumnName("cph");
+
+                    b.Property<DateTimeOffset>("FirstRaisedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("first_raised_at_utc");
+
+                    b.Property<DateOnly>("FirstRaisedDay")
+                        .HasColumnType("date")
+                        .HasColumnName("first_raised_day");
+
+                    b.Property<DateTimeOffset>("LastChangedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_changed_at_utc");
+
+                    b.Property<Guid?>("ReasonId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reason_id");
+
+                    b.Property<string>("ReasonName")
+                        .HasColumnType("text")
+                        .HasColumnName("reason_name");
+
+                    b.Property<string>("RuleId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("rule_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<string>("WorkflowStatus")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("workflow_status");
+
+                    b.HasKey("GroupId", "IssueId");
+
+                    b.ToTable("mi_issue_states", (string)null);
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.MiRefreshRow", b =>
+                {
+                    b.Property<string>("GroupId")
+                        .HasColumnType("text")
+                        .HasColumnName("group_id");
+
+                    b.Property<DateTimeOffset>("BuiltAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("built_at_utc");
+
+                    b.Property<DateTimeOffset>("CheckedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("checked_at_utc");
+
+                    b.Property<int>("DurationMilliseconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("duration_milliseconds");
+
+                    b.Property<int>("Events")
+                        .HasColumnType("integer")
+                        .HasColumnName("events");
+
+                    b.Property<string>("Fingerprint")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("fingerprint");
+
+                    b.Property<DateTimeOffset?>("HistoryFromUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("history_from_utc");
+
+                    b.Property<int>("Issues")
+                        .HasColumnType("integer")
+                        .HasColumnName("issues");
+
+                    b.Property<int>("Mismatches")
+                        .HasColumnType("integer")
+                        .HasColumnName("mismatches");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("GroupId");
+
+                    b.ToTable("mi_refresh", (string)null);
                 });
 
             modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.RuleRunRow", b =>

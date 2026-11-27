@@ -1,3 +1,5 @@
+using Cleanse.Core.Domain.Mi;
+
 namespace Cleanse.Storage.Postgres.Schema;
 
 /// <summary>
@@ -20,6 +22,21 @@ internal static class Db
     public const string ServiceSettings = "service_settings";
     public const string SpolDatasets = "spol_datasets";
     public const string SpolDatasetItems = "spol_dataset_items";
+    public const string MiRefresh = "mi_refresh";
+    public const string MiIssueStates = "mi_issue_states";
+    public const string MiHoldingStates = "mi_holding_states";
+    public const string MiEvents = "mi_events";
+    public const string MiDailyChanges = "mi_daily_changes";
+
+    /// <summary>The dashboard's summary tables, emptied together by a replace and by a reset.</summary>
+    public static readonly string[] MiTables = [MiEvents, MiDailyChanges, MiIssueStates, MiHoldingStates, MiRefresh];
+
+    /// <summary>
+    /// The issue audit entries the MI refresh reads. Spelled once, so its index and its queries
+    /// match and the planner can use the index.
+    /// </summary>
+    public static readonly string MiAuditFilter =
+        $"issue_id IS NOT NULL AND kind IN ({string.Join(", ", MiAuditFact.Kinds.Select(kind => $"'{kind}'"))})";
 
     public static class Issue
     {
