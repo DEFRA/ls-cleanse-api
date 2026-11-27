@@ -40,10 +40,12 @@ public sealed record IssueFilter
 
     public IReadOnlyCollection<WorkflowStatus>? WorkflowStatuses { get; init; }
 
+    /// <summary>The assignee filters match the issue's holding's assignee, not the issue's own.</summary>
     public string? AssignedTo { get; init; }
 
     public Guid? AssignedUserId { get; init; }
 
+    /// <summary>Issues whose holding has neither a known user nor a nonblank assignee.</summary>
     public bool? Unassigned { get; init; }
 
     /// <summary>All pairs must match for an issue to be returned.</summary>
@@ -57,7 +59,7 @@ public sealed record IssueFilter
 
     public DateTimeOffset? UpdatedBeforeUtc { get; init; }
 
-    /// <summary>Case-insensitive match across the id, notes, assignee and context values.</summary>
+    /// <summary>Case-insensitive match across the id, notes and context values.</summary>
     public string? SearchTerm { get; init; }
 
     public IssueSortField SortBy { get; init; } = IssueSortField.UpdatedAtUtc;

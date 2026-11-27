@@ -8,8 +8,9 @@ namespace Cleanse.Core.Abstractions;
 public interface IDataResetStore
 {
     /// <summary>
-    /// Permanently removes issues, their case history and audit trail, rule runs and import
-    /// jobs. Confined to <paramref name="groupId"/> when one is supplied; otherwise everything.
+    /// Permanently removes issues, their case history and audit trail, rule runs, import jobs,
+    /// and the holdings with their notes and actions. Confined to <paramref name="groupId"/> when
+    /// one is supplied; otherwise everything. Users and the admin-maintained lists are kept.
     /// Records the reset itself, which is the one thing it must not delete.
     /// </summary>
     Task<ResetCounts> ResetAsync(
@@ -33,4 +34,7 @@ public sealed record ResetCounts(
     int AuditEntries,
     int RuleRuns,
     int ImportJobs,
-    int ImportRejections);
+    int ImportRejections,
+    int Holdings = 0,
+    int HoldingNotes = 0,
+    int HoldingActions = 0);

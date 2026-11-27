@@ -46,6 +46,15 @@ internal sealed class PostgresAuditStore(CleanseDbContext db) : IAuditStore
         return PageAsync(db.AuditEntries.Where(r => r.RunId == runId), page, cancellationToken);
     }
 
+    public Task<PagedResult<AuditEntry>> GetForSubjectAsync(
+        string subject,
+        PageRequest page,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        return PageAsync(db.AuditEntries.Where(r => r.Subject == subject), page, cancellationToken);
+    }
+
     private static async Task<PagedResult<AuditEntry>> PageAsync(
         IQueryable<AuditEntryRow> query,
         PageRequest page,

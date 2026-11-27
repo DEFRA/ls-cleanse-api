@@ -32,6 +32,9 @@ internal sealed class ResetDataCommandHandler(IDataResetStore store, TimeProvide
             counts.AuditEntries,
             counts.RuleRuns,
             counts.ImportJobs,
-            counts.ImportRejections);
+            counts.ImportRejections,
+            counts.Holdings,
+            counts.HoldingNotes,
+            counts.HoldingActions);
     }
 }

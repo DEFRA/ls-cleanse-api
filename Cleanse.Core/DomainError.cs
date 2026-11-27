@@ -1,7 +1,10 @@
 namespace Cleanse.Core;
 
-/// <summary>An expected, non-exceptional failure. Codes are stable so a host can map them.</summary>
-public sealed record DomainError(string Code, string Message)
+/// <summary>
+/// An expected, non-exceptional failure. Codes are stable so a host can map them.
+/// <see cref="Subject"/> names the record at fault, such as one issue among several.
+/// </summary>
+public sealed record DomainError(string Code, string Message, string? Subject = null)
 {
     public override string ToString() => $"{Code}: {Message}";
 }
@@ -14,6 +17,15 @@ public static class ErrorCodes
     public const string IssueNotSuppressed = "issue.not_suppressed";
     public const string IssueSuppressionExpiryInPast = "issue.suppression_expiry_in_past";
     public const string IssueConcurrencyConflict = "issue.concurrency_conflict";
+    public const string IssueReasonRequired = "issue.reason_required";
+
+    public const string HoldingNotFound = "holding.not_found";
+    public const string HoldingConcurrencyConflict = "holding.concurrency_conflict";
+
+    public const string CodedValueNotFound = "coded_value.not_found";
+    public const string CodedValueDuplicateName = "coded_value.duplicate_name";
+
+    public const string ActingUserNotAllowed = "auth.acting_user_not_allowed";
 
     public const string RunNotFound = "run.not_found";
     public const string RunAlreadyInProgress = "run.already_in_progress";
@@ -41,18 +53,38 @@ public static class DomainErrors
 
     public static DomainError InvalidTransition(string id, string from, string to) =>
         new(ErrorCodes.IssueInvalidTransition,
-            $"Issue '{id}' cannot move from workflow status '{from}' to '{to}'.");
+            $"Issue '{id}' cannot move from workflow status '{from}' to '{to}'.", id);
 
     public static DomainError NotSuppressed(string id) =>
-        new(ErrorCodes.IssueNotSuppressed, $"Issue '{id}' is not suppressed.");
+        new(ErrorCodes.IssueNotSuppressed, $"Issue '{id}' is not suppressed.", id);
 
     public static DomainError SuppressionExpiryInPast(string id) =>
         new(ErrorCodes.IssueSuppressionExpiryInPast,
-            $"The suppression expiry for issue '{id}' must be in the future.");
+            $"The suppression expiry for issue '{id}' must be in the future.", id);
 
     public static DomainError ConcurrencyConflict(string id, int expectedVersion, int actualVersion) =>
         new(ErrorCodes.IssueConcurrencyConflict,
-            $"Issue '{id}' has version {actualVersion}, not the expected {expectedVersion}.");
+            $"Issue '{id}' has version {actualVersion}, not the expected {expectedVersion}.", id);
+
+    public static DomainError ReasonRequired(string id) =>
+        new(ErrorCodes.IssueReasonRequired,
+            $"Issue '{id}' needs a reason to be marked can't resolve.", id);
+
+    public static DomainError HoldingNotFound(string groupId, string cph) =>
+        new(ErrorCodes.HoldingNotFound, $"Group '{groupId}' has no issues for CPH '{cph}'.", cph);
+
+    public static DomainError HoldingConcurrencyConflict(string cph, int expectedVersion, int actualVersion) =>
+        new(ErrorCodes.HoldingConcurrencyConflict,
+            $"Holding '{cph}' has version {actualVersion}, not the expected {expectedVersion}.", cph);
+
+    public static DomainError CodedValueNotFound(Guid id) =>
+        new(ErrorCodes.CodedValueNotFound, $"No list entry has id '{id}'.", id.ToString());
+
+    public static DomainError CodedValueDuplicateName(string list, string name) =>
+        new(ErrorCodes.CodedValueDuplicateName, $"The {list} list already has an entry called '{name}'.");
+
+    public static DomainError ActingUserNotAllowed() =>
+        new(ErrorCodes.ActingUserNotAllowed, "This caller may not act on behalf of a user.");
 
     public static DomainError RunNotFound(string runId) =>
         new(ErrorCodes.RunNotFound, $"Run '{runId}' was not found.");
@@ -68,8 +100,8 @@ public static class DomainErrors
         new(ErrorCodes.RulesEngineDisabled,
             "The rules engine is disabled in this environment. Set Rules:Enabled to start runs.");
 
-    public static DomainError Validation(string message) =>
-        new(ErrorCodes.ValidationFailed, message);
+    public static DomainError Validation(string message, string? subject = null) =>
+        new(ErrorCodes.ValidationFailed, message, subject);
 
     public static DomainError ImportNotFound(Guid id) =>
         new(ErrorCodes.ImportNotFound, $"Import '{id}' was not found.");

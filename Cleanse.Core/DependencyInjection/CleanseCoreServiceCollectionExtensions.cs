@@ -1,6 +1,8 @@
 using Cleanse.Core.Abstractions;
 using Cleanse.Core.Commands;
+using Cleanse.Core.Commands.CodedValues;
 using Cleanse.Core.Commands.History;
+using Cleanse.Core.Commands.Holdings;
 using Cleanse.Core.Commands.Imports;
 using Cleanse.Core.Commands.Issues;
 using Cleanse.Core.Commands.Maintenance;
@@ -8,7 +10,9 @@ using Cleanse.Core.Commands.Runs;
 using Cleanse.Core.Contracts;
 using Cleanse.Core.Dispatching;
 using Cleanse.Core.Queries.Audit;
+using Cleanse.Core.Queries.CodedValues;
 using Cleanse.Core.Queries.History;
+using Cleanse.Core.Queries.Holdings;
 using Cleanse.Core.Queries.Imports;
 using Cleanse.Core.Queries.Issues;
 using Cleanse.Core.Queries.Runs;
@@ -39,6 +43,7 @@ public static class CleanseCoreServiceCollectionExtensions
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddTransient<ICleanseDispatcher, CleanseDispatcher>();
         services.TryAddTransient<IssueMutator>();
+        services.TryAddTransient<IssueReadModel>();
         services.TryAddTransient<IUserDirectory, UserDirectory>();
 
         AddCommand<StartRunCommand, RuleRunDto, StartRunCommandHandler>(services);
@@ -51,8 +56,6 @@ public static class CleanseCoreServiceCollectionExtensions
         AddCommand<ReapStalledRunsCommand, int, ReapStalledRunsCommandHandler>(services);
 
         AddCommand<UpsertDetectionsCommand, DetectionUpsertResult, UpsertDetectionsCommandHandler>(services);
-        AddCommand<AssignIssueCommand, IssueDto, AssignIssueCommandHandler>(services);
-        AddCommand<AssignKnownUserCommand, IssueDto, AssignKnownUserCommandHandler>(services);
         AddCommand<SetIssueNotesCommand, IssueDto, SetIssueNotesCommandHandler>(services);
         AddCommand<SetIssuePriorityCommand, IssueDto, SetIssuePriorityCommandHandler>(services);
         AddCommand<SetIssueWorkflowStatusCommand, IssueDto, SetIssueWorkflowStatusCommandHandler>(services);
@@ -61,6 +64,14 @@ public static class CleanseCoreServiceCollectionExtensions
         AddCommand<ExpireSuppressionsCommand, SuppressionExpiryResult, ExpireSuppressionsCommandHandler>(services);
 
         AddCommand<AddIssueHistoryCommand, IssueHistoryEntryDto, AddIssueHistoryCommandHandler>(services);
+
+        AddCommand<AssignHoldingCommand, HoldingDto, AssignHoldingCommandHandler>(services);
+        AddCommand<AddHoldingNoteCommand, HoldingNoteDto, AddHoldingNoteCommandHandler>(services);
+        AddCommand<RecordHoldingActionsCommand, RecordedHoldingActionsDto, RecordHoldingActionsCommandHandler>(services);
+        AddCommand<UpdateHoldingIssuesCommand, HoldingIssuesUpdatedDto, UpdateHoldingIssuesCommandHandler>(services);
+
+        AddCommand<AddCodedValueCommand, CodedValueDto, AddCodedValueCommandHandler>(services);
+        AddCommand<SetCodedValueActiveCommand, CodedValueDto, SetCodedValueActiveCommandHandler>(services);
 
         AddCommand<CreateImportJobCommand, ImportJobDto, CreateImportJobCommandHandler>(services);
         AddCommand<ApplyImportBatchCommand, ImportBatchResult, ApplyImportBatchCommandHandler>(services);
@@ -80,6 +91,8 @@ public static class CleanseCoreServiceCollectionExtensions
         AddQuery<GetIssueAuditQuery, PagedResult<AuditEntryDto>, GetIssueAuditQueryHandler>(services);
         AddQuery<GetRunAuditQuery, PagedResult<AuditEntryDto>, GetRunAuditQueryHandler>(services);
         AddQuery<GetIssueHistoryQuery, PagedResult<IssueHistoryEntryDto>, GetIssueHistoryQueryHandler>(services);
+        AddQuery<GetHoldingQuery, HoldingDetailDto, GetHoldingQueryHandler>(services);
+        AddQuery<ListCodedValuesQuery, IReadOnlyList<CodedValueDto>, ListCodedValuesQueryHandler>(services);
 
         AddQuery<GetImportJobQuery, ImportJobDto, GetImportJobQueryHandler>(services);
         AddQuery<SearchImportJobsQuery, PagedResult<ImportJobDto>, SearchImportJobsQueryHandler>(services);

@@ -278,4 +278,7 @@ public static class ImportRejectionReasons
     public const string SuspectDate = "suspect_date";
     public const string AssigneeUnmatched = "assignee_unmatched";
     public const string AssigneeAmbiguous = "assignee_ambiguous";
+
+    /// <summary>A file's rows for one CPH named different people. One was given the holding.</summary>
+    public const string AssigneeConflict = "assignee_conflict";
 }

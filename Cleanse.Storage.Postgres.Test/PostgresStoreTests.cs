@@ -19,6 +19,10 @@ public sealed class PostgresIssueStoreTests(PostgresFixture fixture)
         // Threshold low enough that the batch tests exercise COPY rather than INSERT.
         new PostgresIssueStore(_harness.NewContext(), CleansePostgresOptions.ForExistingDataSource(3));
 
+    protected override IHoldingStore CreateHoldingStore() => new PostgresHoldingStore(_harness.NewContext());
+
+    protected override ICodedValueStore CreateCodedValueStore() => new PostgresCodedValueStore(_harness.NewContext());
+
     /// <summary>
     /// Guards the index the grouped search relies on: it has to exist, and its expression has to be
     /// the one the grouping SQL uses, or the planner will not pick it.
@@ -101,6 +105,47 @@ public sealed class PostgresImportJobStoreTests(PostgresFixture fixture)
     private readonly PostgresStoreHarness _harness = new(fixture);
 
     protected override IImportJobStore CreateStore() => new PostgresImportJobStore(_harness.NewContext());
+
+    public ValueTask InitializeAsync() => _harness.InitializeAsync();
+
+    public ValueTask DisposeAsync() => _harness.DisposeAsync();
+}
+
+[Collection(PostgresCollection.Name)]
+public sealed class PostgresHoldingStoreTests(PostgresFixture fixture)
+    : HoldingStoreContractTests, IAsyncLifetime
+{
+    private readonly PostgresStoreHarness _harness = new(fixture);
+
+    protected override IHoldingStore CreateStore() => new PostgresHoldingStore(_harness.NewContext());
+
+    public ValueTask InitializeAsync() => _harness.InitializeAsync();
+
+    public ValueTask DisposeAsync() => _harness.DisposeAsync();
+}
+
+[Collection(PostgresCollection.Name)]
+public sealed class PostgresHoldingActivityStoreTests(PostgresFixture fixture)
+    : HoldingActivityStoreContractTests, IAsyncLifetime
+{
+    private readonly PostgresStoreHarness _harness = new(fixture);
+
+    protected override IHoldingActivityStore CreateStore() => new PostgresHoldingActivityStore(_harness.NewContext());
+
+    protected override ICodedValueStore CreateCodedValueStore() => new PostgresCodedValueStore(_harness.NewContext());
+
+    public ValueTask InitializeAsync() => _harness.InitializeAsync();
+
+    public ValueTask DisposeAsync() => _harness.DisposeAsync();
+}
+
+[Collection(PostgresCollection.Name)]
+public sealed class PostgresCodedValueStoreTests(PostgresFixture fixture)
+    : CodedValueStoreContractTests, IAsyncLifetime
+{
+    private readonly PostgresStoreHarness _harness = new(fixture);
+
+    protected override ICodedValueStore CreateStore() => new PostgresCodedValueStore(_harness.NewContext());
 
     public ValueTask InitializeAsync() => _harness.InitializeAsync();
 

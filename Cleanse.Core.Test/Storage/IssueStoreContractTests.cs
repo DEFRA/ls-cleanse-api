@@ -17,6 +17,12 @@ public abstract class IssueStoreContractTests
 
     protected abstract IIssueStore CreateStore();
 
+    /// <summary>A holding store over the same data as <see cref="CreateStore"/>, for the assignee filters.</summary>
+    protected abstract IHoldingStore CreateHoldingStore();
+
+    /// <summary>The admin lists over the same data, because an issue's outcome reason refers to one.</summary>
+    protected abstract ICodedValueStore CreateCodedValueStore();
+
     private async Task<IIssueStore> SeedAsync(params Issue[] issues)
     {
         var store = CreateStore();
@@ -288,14 +294,25 @@ public abstract class IssueStoreContractTests
     public async Task Search_filters_on_the_human_axis()
     {
         var assigned = TestData.NewIssue("a");
-        assigned.AssignTo("alice", Night1);
         Assert.True(assigned.ChangeWorkflowStatus(WorkflowStatus.InProgress, Night1).IsSuccess);
+        var sameHolding = TestData.NewIssue("a", ruleId: TestData.Rule5);
 
+        // An assignment on the issue itself, from before assignment moved to the holding, is not read.
         var unassigned = TestData.NewIssue("b");
-        var store = await SeedAsync(assigned, unassigned);
+        unassigned.AssignTo("alice", Night1);
+        var store = await SeedAsync(assigned, sameHolding, unassigned);
+
+        var holdings = CreateHoldingStore();
+        var alices = Holding.New(new HoldingKey(TestData.Group, "a"), Night1);
+        alices.SyncAssignment(null, "Alice", Night1);
+        Assert.True(await holdings.SaveAsync(alices, 0));
+        var elsewhere = Holding.New(new HoldingKey("elsewhere", "b"), Night1);
+        elsewhere.SyncAssignment(null, "Alice", Night1);
+        Assert.True(await holdings.SaveAsync(elsewhere, 0));
 
         var mine = await store.SearchAsync(new IssueFilter { AssignedTo = "ALICE" });
-        Assert.Equal(assigned.Id.Value, Assert.Single(mine.Items).Id.Value);
+        Assert.Equal(2, mine.TotalCount);
+        Assert.DoesNotContain(mine.Items, issue => issue.Id == unassigned.Id);
 
         var queue = await store.SearchAsync(new IssueFilter { Unassigned = true });
         Assert.Equal(unassigned.Id.Value, Assert.Single(queue.Items).Id.Value);
@@ -305,6 +322,71 @@ public abstract class IssueStoreContractTests
             WorkflowStatuses = [WorkflowStatus.InProgress, WorkflowStatus.Resolved]
         });
         Assert.Equal(assigned.Id.Value, Assert.Single(inProgress.Items).Id.Value);
+    }
+
+    [Fact]
+    public async Task Issues_are_found_by_their_holding()
+    {
+        var first = TestData.NewIssue("01/001/0001");
+        var second = TestData.NewIssue("01/001/0001", ruleId: TestData.Rule5);
+        var neighbour = TestData.NewIssue("01/001/0002");
+        var otherGroup = TestData.NewIssue("01/001/0001", groupId: "elsewhere", ruleId: "rule9");
+        var keyless = Issue.FromDetection(
+            new IssueDetection(TestData.Key("x"), TestData.Rule2, new Dictionary<string, string> { ["keeper"] = "J Smith" }),
+            TestData.Group, "run-1", Night1);
+        var store = await SeedAsync(first, second, neighbour, otherGroup, keyless);
+
+        var found = await store.GetForHoldingsAsync(TestData.Group, ["01/001/0001", "missing"]);
+
+        Assert.Equal(
+            new[] { first.Id.Value, second.Id.Value }.Order(StringComparer.Ordinal),
+            found.Select(issue => issue.Id.Value).Order(StringComparer.Ordinal));
+        Assert.Equal(3, (await store.GetForHoldingsAsync(TestData.Group, ["01/001/0001", "01/001/0002"])).Count);
+        Assert.Empty(await store.GetForHoldingsAsync(TestData.Group, []));
+    }
+
+    [Fact]
+    public async Task Save_all_writes_every_issue_or_none()
+    {
+        var store = await SeedAsync(TestData.NewIssue("a"), TestData.NewIssue("b"));
+        var first = (await store.GetAsync(TestData.Key("a")))!;
+        var second = (await store.GetAsync(TestData.Key("b")))!;
+        var (firstVersion, secondVersion) = (first.Version, second.Version);
+        first.SetNotes("first", Night2);
+        second.SetNotes("second", Night2);
+
+        Assert.False(await store.SaveAllAsync([(first, firstVersion), (second, secondVersion + 1)]));
+        Assert.Null((await store.GetAsync(first.Id))!.Notes);
+        Assert.Null((await store.GetAsync(second.Id))!.Notes);
+
+        Assert.True(await store.SaveAllAsync([(first, firstVersion), (second, secondVersion)]));
+        Assert.Equal("first", (await store.GetAsync(first.Id))!.Notes);
+        Assert.Equal("second", (await store.GetAsync(second.Id))!.Notes);
+        Assert.True(await store.SaveAllAsync([]));
+    }
+
+    [Fact]
+    public async Task An_outcome_reason_round_trips_on_single_and_batch_saves()
+    {
+        var duplicate = CodedValue.Create(CodedList.CantResolveReason, "Duplicate", Night1).Value;
+        Assert.True(await CreateCodedValueStore().AddAsync(duplicate));
+        var reason = new OutcomeReason(duplicate.Id, duplicate.Name);
+        var issues = Enumerable.Range(0, 5).Select(i => TestData.NewIssue($"reason-{i}")).ToArray();
+        foreach (var issue in issues)
+        {
+            Assert.True(issue.ChangeWorkflowStatus(WorkflowStatus.Nonactionable, Night1, reason).IsSuccess);
+        }
+
+        // Five is over the Postgres harness's COPY threshold, so both batch write shapes are covered.
+        var store = await SeedAsync(issues);
+        var single = TestData.NewIssue("reason-single");
+        Assert.True(single.ChangeWorkflowStatus(WorkflowStatus.Nonactionable, Night1, reason).IsSuccess);
+        Assert.True(await store.SaveAsync(single, null));
+
+        foreach (var issue in issues.Append(single))
+        {
+            Assert.Equal(issue.ToSnapshot(), (await store.GetAsync(issue.Id))!.ToSnapshot());
+        }
     }
 
     [Fact]
@@ -325,7 +407,7 @@ public abstract class IssueStoreContractTests
     }
 
     [Fact]
-    public async Task Search_term_covers_id_notes_assignee_and_context_values()
+    public async Task Search_term_covers_id_notes_and_context_values()
     {
         var byNotes = TestData.NewIssue("a");
         byNotes.SetNotes("awaiting LETTER from keeper", Night1);

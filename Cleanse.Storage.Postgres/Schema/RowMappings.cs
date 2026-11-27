@@ -35,7 +35,9 @@ internal static class RowMappings
         UpdatedAtUtc = snapshot.UpdatedAtUtc,
         ActivatedAtUtc = snapshot.ActivatedAtUtc,
         DeactivatedAtUtc = snapshot.DeactivatedAtUtc,
-        Version = snapshot.Version
+        Version = snapshot.Version,
+        OutcomeReasonId = snapshot.OutcomeReasonId,
+        OutcomeReason = snapshot.OutcomeReasonName
     };
 
     public static Issue ToDomain(this IssueRow row) => Issue.FromSnapshot(new IssueSnapshot(
@@ -59,7 +61,100 @@ internal static class RowMappings
         row.Version,
         row.AssignedUserId,
         row.AssignedUserFullName,
-        row.AssignmentDetachedAtUtc));
+        row.AssignmentDetachedAtUtc,
+        row.OutcomeReasonId,
+        row.OutcomeReason));
+
+    public static HoldingRow ToRow(this HoldingSnapshot snapshot) => new()
+    {
+        GroupId = snapshot.GroupId,
+        Cph = snapshot.Cph,
+        AssignedTo = snapshot.AssignedTo,
+        AssignedUserId = snapshot.AssignedUserId,
+        AssignedUserFullName = snapshot.AssignedUserFullName,
+        AssignmentDetachedAtUtc = snapshot.AssignmentDetachedAtUtc,
+        CreatedAtUtc = snapshot.CreatedAtUtc,
+        UpdatedAtUtc = snapshot.UpdatedAtUtc,
+        Version = snapshot.Version
+    };
+
+    public static Holding ToDomain(this HoldingRow row) => Holding.FromSnapshot(new HoldingSnapshot(
+        row.GroupId,
+        row.Cph,
+        row.AssignedTo,
+        row.AssignedUserId,
+        row.AssignedUserFullName,
+        row.AssignmentDetachedAtUtc,
+        row.CreatedAtUtc,
+        row.UpdatedAtUtc,
+        row.Version));
+
+    public static HoldingNoteRow ToRow(this HoldingNoteSnapshot snapshot) => new()
+    {
+        Id = snapshot.Id,
+        GroupId = snapshot.GroupId,
+        Cph = snapshot.Cph,
+        Text = snapshot.Text,
+        Context = snapshot.Context,
+        CreatedAtUtc = snapshot.CreatedAtUtc,
+        CreatedById = snapshot.CreatedBy.Id,
+        CreatedByDisplayName = snapshot.CreatedBy.DisplayName,
+        CreatedByKind = snapshot.CreatedBy.Kind.ToString()
+    };
+
+    public static HoldingNote ToDomain(this HoldingNoteRow row) => HoldingNote.FromSnapshot(new HoldingNoteSnapshot(
+        row.Id,
+        row.GroupId,
+        row.Cph,
+        row.Text,
+        row.Context,
+        row.CreatedAtUtc,
+        RebuildActor(row.CreatedById, row.CreatedByDisplayName, row.CreatedByKind)));
+
+    public static HoldingActionRow ToRow(this HoldingActionSnapshot snapshot) => new()
+    {
+        Id = snapshot.Id,
+        BatchId = snapshot.BatchId,
+        GroupId = snapshot.GroupId,
+        Cph = snapshot.Cph,
+        ActionTypeId = snapshot.ActionTypeId,
+        ActionTypeName = snapshot.ActionTypeName,
+        CreatedAtUtc = snapshot.CreatedAtUtc,
+        CreatedById = snapshot.CreatedBy.Id,
+        CreatedByDisplayName = snapshot.CreatedBy.DisplayName,
+        CreatedByKind = snapshot.CreatedBy.Kind.ToString()
+    };
+
+    public static HoldingAction ToDomain(this HoldingActionRow row) => HoldingAction.FromSnapshot(new HoldingActionSnapshot(
+        row.Id,
+        row.BatchId,
+        row.GroupId,
+        row.Cph,
+        row.ActionTypeId,
+        row.ActionTypeName,
+        row.CreatedAtUtc,
+        RebuildActor(row.CreatedById, row.CreatedByDisplayName, row.CreatedByKind)));
+
+    public static CodedValueRow ToRow(this CodedValueSnapshot snapshot) => new()
+    {
+        Id = snapshot.Id,
+        List = snapshot.List.ToWire(),
+        Name = snapshot.Name,
+        NameKey = CodedValue.KeyOf(snapshot.Name),
+        IsActive = snapshot.IsActive,
+        CreatedAtUtc = snapshot.CreatedAtUtc,
+        UpdatedAtUtc = snapshot.UpdatedAtUtc
+    };
+
+    public static CodedValue ToDomain(this CodedValueRow row) => CodedValue.FromSnapshot(new CodedValueSnapshot(
+        row.Id,
+        CodedLists.TryParse(row.List, out var list)
+            ? list
+            : throw new InvalidOperationException($"'{row.List}' is not a known list."),
+        row.Name,
+        row.IsActive,
+        row.CreatedAtUtc,
+        row.UpdatedAtUtc));
 
     public static IssuePriority ParsePriority(string value) =>
         StatusNames.TryParsePriority(value, out var priority)
@@ -136,7 +231,8 @@ internal static class RowMappings
         ActorDisplayName = entry.Actor.DisplayName,
         ActorKind = entry.Actor.Kind.ToString(),
         AtUtc = entry.AtUtc,
-        Changes = JsonSerializer.Serialize(entry.Changes, Json)
+        Changes = JsonSerializer.Serialize(entry.Changes, Json),
+        Subject = entry.Subject
     };
 
     public static AuditEntry ToDomain(this AuditEntryRow row) => AuditEntry.Rehydrate(
@@ -146,7 +242,8 @@ internal static class RowMappings
         Enum.Parse<AuditEventKind>(row.Kind),
         RebuildActor(row.ActorId, row.ActorDisplayName, row.ActorKind),
         row.AtUtc,
-        JsonSerializer.Deserialize<List<AuditChange>>(row.Changes, Json) ?? []);
+        JsonSerializer.Deserialize<List<AuditChange>>(row.Changes, Json) ?? [],
+        row.Subject);
 
     public static IssueHistoryRow ToRow(this IssueHistorySnapshot snapshot) => new()
     {

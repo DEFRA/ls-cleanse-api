@@ -273,6 +273,59 @@ public class SpolCsvTests
         Assert.Equal(first.Invalid.Count, second.Invalid.Count);
     }
 
+    private static string Assigned(string row, string assignee) =>
+        row.Replace("a@b.gov.uk", assignee, StringComparison.Ordinal);
+
+    [Fact]
+    public void Only_one_row_per_cph_carries_the_assignee_and_an_open_row_beats_a_closed_one()
+    {
+        var batch = SpolRowMapper.Project(SpolCsvReader.Read(
+            Csv(
+                Assigned(Row("01/036/8000", "1", "In progress"), "Bob Open"),
+                Assigned(Row("01/036/8000", "2", "Completed"), "Alice Closed"),
+                Assigned(Row("01/036/8001", "1", "New"), "Carol Only")),
+            "cts-sam"));
+
+        var carriers = batch.Rows.Where(r => r.HasAssignee).ToList();
+        Assert.Equal(["Bob Open", "Carol Only"], carriers.Select(r => r.AssignedTo).Order(StringComparer.Ordinal));
+        var conflict = Assert.Single(batch.AssigneeConflicts);
+        Assert.Equal("01/036/8000", conflict.Row.Cph);
+        Assert.Equal(2, conflict.Row.RowNumber);
+        Assert.Equal([2L, 3L], conflict.NamingRows);
+    }
+
+    [Fact]
+    public void Among_open_rows_the_last_in_the_file_wins_and_a_blank_never_beats_a_name()
+    {
+        var batch = SpolRowMapper.Project(SpolCsvReader.Read(
+            Csv(
+                Assigned(Row("01/036/8000", "1", "New"), "First Open"),
+                Assigned(Row("01/036/8000", "2", "In progress"), "Second Open"),
+                Assigned(Row("01/036/8000", "3", "New"), "   "),
+                Assigned(Row("01/036/8000", "4", "Completed"), "Closed Person")),
+            "cts-sam"));
+
+        Assert.Equal("Second Open", Assert.Single(batch.Rows, r => r.HasAssignee).AssignedTo);
+        Assert.Equal([2L, 3L, 5L], Assert.Single(batch.AssigneeConflicts).NamingRows);
+    }
+
+    [Fact]
+    public void Rows_agreeing_on_the_assignee_raise_no_warning_and_all_blank_still_unassigns()
+    {
+        var batch = SpolRowMapper.Project(SpolCsvReader.Read(
+            Csv(
+                Assigned(Row("01/036/8000", "1", "New"), "Same  Person"),
+                Assigned(Row("01/036/8000", "2", "Completed"), "same person"),
+                Assigned(Row("01/036/8001", "1", "New"), ""),
+                Assigned(Row("01/036/8001", "2", "New"), " ")),
+            "cts-sam"));
+
+        Assert.Empty(batch.AssigneeConflicts);
+        var carriers = batch.Rows.Where(r => r.HasAssignee).ToList();
+        Assert.Equal(2, carriers.Count);
+        Assert.Contains(carriers, r => string.IsNullOrWhiteSpace(r.AssignedTo));
+    }
+
     private static string Fingerprint(SpolBatch batch) =>
         string.Join("\n", batch.Rows
             .OrderBy(r => r.IssueId.Value, StringComparer.Ordinal)

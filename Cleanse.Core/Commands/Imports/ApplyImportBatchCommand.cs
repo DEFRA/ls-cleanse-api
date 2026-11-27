@@ -18,6 +18,7 @@ public sealed record ApplyImportBatchCommand(
 internal sealed class ApplyImportBatchCommandHandler(
     IImportJobStore imports,
     IIssueStore issues,
+    IHoldingStore holdings,
     IIssueHistoryStore history,
     IAuditStore audit,
     IUserStore users,
@@ -69,12 +70,27 @@ internal sealed class ApplyImportBatchCommandHandler(
         var byName = directory.GroupBy(user => NameKey(user.FullName), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
 
-        // An address nobody has yet becomes a user, so the issue can be theirs before they sign in.
+        // SPOL's Assigned to now belongs to the issue's holding. The extract was reduced to one
+        // row per CPH carrying it, before it was split into batches.
+        HoldingKey? HoldingOf(ExternalIssueRow row) =>
+            row.HasAssignee &&
+            existing.TryGetValue(row.IssueId.Value, out var issue) &&
+            string.Equals(issue.GroupId, job.GroupId, StringComparison.Ordinal)
+                ? HoldingKey.For(issue)
+                : null;
+
+        var holdingKeys = rows.Select(HoldingOf).OfType<HoldingKey>().Distinct().ToList();
+        var stored = holdingKeys.Count == 0
+            ? []
+            : (await holdings.GetManyAsync(job.GroupId, [.. holdingKeys.Select(key => key.Cph)], cancellationToken))
+                .ToDictionary(holding => holding.Key);
+        var loadedVersions = holdingKeys.ToDictionary(key => key, key => stored.GetValueOrDefault(key)?.Version ?? 0);
+        var touched = new Dictionary<HoldingKey, Holding>();
+
+        // An address nobody has yet becomes a user, so the holding can be theirs before they sign in.
         var newcomers = rows
-            .Where(row => row.HasAssignee &&
-                          existing.TryGetValue(row.IssueId.Value, out var issue) &&
-                          string.Equals(issue.GroupId, job.GroupId, StringComparison.Ordinal) &&
-                          issue.AssignmentDetachedAtUtc is null)
+            .Where(row => HoldingOf(row) is { } key &&
+                          stored.GetValueOrDefault(key)?.AssignmentDetachedAtUtc is null)
             .Select(row => (Typed: row.AssignedTo?.Trim(),
                 Email: EmailAddress.TryNormalise(row.AssignedTo, out var email) ? email : null))
             .Where(entry => entry.Email is not null && !byEmail.ContainsKey(entry.Email))
@@ -124,7 +140,11 @@ internal sealed class ApplyImportBatchCommandHandler(
 
             matched++;
             var expectedVersion = issue.Version;
-            if (row.HasAssignee && issue.AssignmentDetachedAtUtc is null)
+            var assignedHolding = HoldingOf(row);
+            var current = assignedHolding is { } found
+                ? touched.GetValueOrDefault(found) ?? stored.GetValueOrDefault(found)
+                : null;
+            if (assignedHolding is { } holdingKey && current?.AssignmentDetachedAtUtc is null)
             {
                 var assignee = string.IsNullOrWhiteSpace(row.AssignedTo) ? null : row.AssignedTo.Trim();
                 KnownUser? user = null;
@@ -151,10 +171,12 @@ internal sealed class ApplyImportBatchCommandHandler(
                     }
                 }
 
-                var assignment = issue.SyncAssignment(user, assignee, now);
+                var holding = current ?? Holding.New(holdingKey, now);
+                var assignment = holding.SyncAssignment(user, assignee, now);
                 if (assignment.IsMaterial)
                 {
-                    auditEntries.Add(AuditEntry.ForIssue(issue.Id, assignment, command.Actor, now, job.Id.ToString()));
+                    touched[holdingKey] = holding;
+                    auditEntries.Add(AuditEntry.ForHolding(holdingKey, assignment, command.Actor, now, job.Id.ToString()));
                 }
 
                 if (warning is not null)
@@ -184,6 +206,14 @@ internal sealed class ApplyImportBatchCommandHandler(
                     contact.Column,
                     command.Actor,
                     contact.AtUtc));
+            }
+        }
+
+        foreach (var (key, holding) in touched)
+        {
+            if (!await holdings.SaveAsync(holding, loadedVersions[key], cancellationToken))
+            {
+                return DomainErrors.HoldingConcurrencyConflict(key.Cph, loadedVersions[key], loadedVersions[key] + 1);
             }
         }
 

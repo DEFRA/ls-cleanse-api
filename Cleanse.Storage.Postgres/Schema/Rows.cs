@@ -48,6 +48,99 @@ internal sealed class IssueRow
     public DateTimeOffset? DeactivatedAtUtc { get; set; }
 
     public int Version { get; set; }
+
+    public Guid? OutcomeReasonId { get; set; }
+
+    public string? OutcomeReason { get; set; }
+}
+
+/// <summary>A holding with something recorded against it. Keyed by group and CPH.</summary>
+internal sealed class HoldingRow
+{
+    public required string GroupId { get; set; }
+
+    public required string Cph { get; set; }
+
+    public string? AssignedTo { get; set; }
+
+    public Guid? AssignedUserId { get; set; }
+
+    public string? AssignedUserFullName { get; set; }
+
+    public DateTimeOffset? AssignmentDetachedAtUtc { get; set; }
+
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+
+    public int Version { get; set; }
+}
+
+internal sealed class HoldingNoteRow
+{
+    public Guid Id { get; set; }
+
+    /// <summary>Database-generated. The stable tie-break for notes sharing a timestamp.</summary>
+    public long Sequence { get; set; }
+
+    public required string GroupId { get; set; }
+
+    public required string Cph { get; set; }
+
+    public required string Text { get; set; }
+
+    public string? Context { get; set; }
+
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public required string CreatedById { get; set; }
+
+    public required string CreatedByDisplayName { get; set; }
+
+    public required string CreatedByKind { get; set; }
+}
+
+internal sealed class HoldingActionRow
+{
+    public Guid Id { get; set; }
+
+    public long Sequence { get; set; }
+
+    public Guid BatchId { get; set; }
+
+    public required string GroupId { get; set; }
+
+    public required string Cph { get; set; }
+
+    public Guid ActionTypeId { get; set; }
+
+    public required string ActionTypeName { get; set; }
+
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public required string CreatedById { get; set; }
+
+    public required string CreatedByDisplayName { get; set; }
+
+    public required string CreatedByKind { get; set; }
+}
+
+internal sealed class CodedValueRow
+{
+    public Guid Id { get; set; }
+
+    public required string List { get; set; }
+
+    public required string Name { get; set; }
+
+    /// <summary>The name lower-cased and trimmed, so a plain unique index ignores case and spaces.</summary>
+    public required string NameKey { get; set; }
+
+    public bool IsActive { get; set; }
+
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
 /// <summary>One recorded reset. Survives the reset it records.</summary>
@@ -129,6 +222,8 @@ internal sealed class AuditEntryRow
     public DateTimeOffset AtUtc { get; set; }
 
     public required string Changes { get; set; }
+
+    public string? Subject { get; set; }
 }
 
 internal sealed class IssueHistoryRow

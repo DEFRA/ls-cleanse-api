@@ -83,6 +83,30 @@ public abstract class AuditStoreContractTests
     }
 
     [Fact]
+    public async Task Entries_about_a_subject_are_returned_for_it_alone_newest_first()
+    {
+        var store = CreateStore();
+        var holding = new HoldingKey(TestData.Group, "01/036/8000");
+        var assigned = new IssueChange(AuditEventKind.HoldingAssigned, [new AuditChange("AssignedTo", null, "Alice")]);
+        await store.AppendAsync(AuditEntry.ForHolding(holding, assigned, TestData.Alice, Night1));
+        await store.AppendBatchAsync(
+        [
+            AuditEntry.ForHolding(holding, assigned, TestData.Alice, Night1.AddDays(1), runId: "import-1"),
+            AuditEntry.ForHolding(new HoldingKey(TestData.Group, "01/036/8001"), assigned, TestData.Alice, Night1),
+            IssueEntry("01/036/8000", Night1)
+        ]);
+
+        var page = await store.GetForSubjectAsync(AuditSubjects.Holding(holding), PageRequest.Default);
+
+        Assert.Equal(2, page.TotalCount);
+        Assert.Equal([Night1.AddDays(1), Night1], page.Items.Select(e => e.AtUtc).ToArray());
+        Assert.All(page.Items, e => Assert.Equal("holding:cts-sam:01/036/8000", e.Subject));
+        Assert.Equal("import-1", page.Items[0].RunId);
+        Assert.Null(page.Items[0].IssueId);
+        Assert.Null((await store.GetForIssueAsync(TestData.Key("01/036/8000"), PageRequest.Default)).Items[0].Subject);
+    }
+
+    [Fact]
     public async Task Paging_reports_the_unpaged_total()
     {
         var store = CreateStore();

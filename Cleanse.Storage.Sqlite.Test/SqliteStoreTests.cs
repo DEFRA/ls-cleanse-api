@@ -38,6 +38,12 @@ internal sealed class SqliteHarness : IAsyncDisposable
 
     public SqliteImportJobStore Imports => new(_database);
 
+    public SqliteHoldingStore Holdings => new(_database);
+
+    public SqliteHoldingActivityStore Activity => new(_database);
+
+    public SqliteCodedValueStore CodedValues => new(_database);
+
     public ValueTask DisposeAsync() => _database.DisposeAsync();
 }
 
@@ -46,6 +52,10 @@ public sealed class SqliteIssueStoreTests : IssueStoreContractTests, IAsyncDispo
     private readonly SqliteHarness _harness = new();
 
     protected override IIssueStore CreateStore() => _harness.Issues;
+
+    protected override IHoldingStore CreateHoldingStore() => _harness.Holdings;
+
+    protected override ICodedValueStore CreateCodedValueStore() => _harness.CodedValues;
 
     public ValueTask DisposeAsync() => _harness.DisposeAsync();
 }
@@ -89,6 +99,35 @@ public sealed class SqliteImportJobStoreTests : ImportJobStoreContractTests, IAs
     private readonly SqliteHarness _harness = new();
 
     protected override IImportJobStore CreateStore() => _harness.Imports;
+
+    public ValueTask DisposeAsync() => _harness.DisposeAsync();
+}
+
+public sealed class SqliteHoldingStoreTests : HoldingStoreContractTests, IAsyncDisposable
+{
+    private readonly SqliteHarness _harness = new();
+
+    protected override IHoldingStore CreateStore() => _harness.Holdings;
+
+    public ValueTask DisposeAsync() => _harness.DisposeAsync();
+}
+
+public sealed class SqliteHoldingActivityStoreTests : HoldingActivityStoreContractTests, IAsyncDisposable
+{
+    private readonly SqliteHarness _harness = new();
+
+    protected override IHoldingActivityStore CreateStore() => _harness.Activity;
+
+    protected override ICodedValueStore CreateCodedValueStore() => _harness.CodedValues;
+
+    public ValueTask DisposeAsync() => _harness.DisposeAsync();
+}
+
+public sealed class SqliteCodedValueStoreTests : CodedValueStoreContractTests, IAsyncDisposable
+{
+    private readonly SqliteHarness _harness = new();
+
+    protected override ICodedValueStore CreateStore() => _harness.CodedValues;
 
     public ValueTask DisposeAsync() => _harness.DisposeAsync();
 }

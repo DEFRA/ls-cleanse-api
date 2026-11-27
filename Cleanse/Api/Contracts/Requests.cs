@@ -1,36 +1,20 @@
 using System.ComponentModel.DataAnnotations;
-using System.Text.Json.Serialization;
 using Cleanse.Core.Domain;
 
 namespace Cleanse.Api.Contracts;
 
 /// <summary>
 /// The actor is taken from the authenticated caller, never from the request body, so a caller
-/// cannot attribute their change to somebody else.
+/// cannot attribute their change to somebody else. A trusted front end names the person it acts
+/// for in the x-cleanse-user-id header instead; see <see cref="ActingUser"/>.
 /// </summary>
-public sealed record AssignIssueRequest(string? AssignTo, int? ExpectedVersion)
-{
-    private Guid? _userId;
-
-    public Guid? UserId
-    {
-        get => _userId;
-        init
-        {
-            _userId = value;
-            HasUserId = true;
-        }
-    }
-
-    [JsonIgnore]
-    public bool HasUserId { get; private init; }
-}
-
 public sealed record SetNotesRequest(string? Notes, int? ExpectedVersion);
 
+/// <summary>ReasonId names an entry in the outcome's reason list; Can't resolve (nonactionable) needs one.</summary>
 public sealed record SetWorkflowStatusRequest(
     [property: Required] string WorkflowStatus,
-    int? ExpectedVersion);
+    int? ExpectedVersion,
+    Guid? ReasonId = null);
 
 public sealed record SuppressIssueRequest(
     [property: Required] DateTimeOffset ExpiresAtUtc,
@@ -59,3 +43,47 @@ public sealed record UpsertDetectionsRequest(
 
 /// <summary>Omitting GroupId clears every group. There is no undo.</summary>
 public sealed record ResetRequest(string? GroupId);
+
+/// <summary>
+/// A holding is named in the body rather than the path, because a CPH contains slashes. A null
+/// UserId unassigns it.
+/// </summary>
+public sealed record AssignHoldingRequest(
+    [property: Required] string GroupId,
+    [property: Required] string Cph,
+    Guid? UserId,
+    int? ExpectedVersion);
+
+public sealed record AddHoldingNoteRequest(
+    [property: Required] string GroupId,
+    [property: Required] string Cph,
+    [property: Required, MaxLength(HoldingNote.MaxLength)] string Text);
+
+public sealed record RecordHoldingActionsRequest(
+    [property: Required] string GroupId,
+    [property: Required] string Cph,
+    [property: Required] IReadOnlyList<Guid> ActionTypeIds,
+    [property: MaxLength(HoldingNote.MaxLength)] string? Note);
+
+/// <summary>An issue the holding page showed, at the version it showed.</summary>
+public sealed record HoldingIssueRequest(
+    [property: Required] string Id,
+    [property: Required] int? ExpectedVersion);
+
+/// <summary>
+/// Gives the listed issues one new status, all or none. Suppressed needs SuppressUntilUtc;
+/// resolved may and nonactionable (Can't resolve) must name a reason from its list.
+/// </summary>
+public sealed record UpdateHoldingIssuesRequest(
+    [property: Required] string GroupId,
+    [property: Required] string Cph,
+    [property: Required] string WorkflowStatus,
+    [property: Required] IReadOnlyList<HoldingIssueRequest> Issues,
+    Guid? ReasonId,
+    DateTimeOffset? SuppressUntilUtc,
+    [property: MaxLength(HoldingNote.MaxLength)] string? Note);
+
+public sealed record AddCodedValueRequest(
+    [property: Required, MaxLength(CodedValue.MaxNameLength)] string Name);
+
+public sealed record SetCodedValueActiveRequest([property: Required] bool? IsActive);

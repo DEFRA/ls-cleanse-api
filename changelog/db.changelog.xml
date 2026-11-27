@@ -106,4 +106,12 @@
                  stripComments="false"/>
     </changeSet>
 
+    <changeSet id="0010-holding-workflow" author="cleanse" runOnChange="false" runInTransaction="false">
+        <comment>Holdings with their assignee, notes and actions; admin lists; outcome reasons; Ignored merged into Can't resolve.</comment>
+        <sqlFile path="sql/0010_holding_workflow.sql"
+                 relativeToChangelogFile="true"
+                 splitStatements="false"
+                 stripComments="false"/>
+    </changeSet>
+
 </databaseChangeLog>

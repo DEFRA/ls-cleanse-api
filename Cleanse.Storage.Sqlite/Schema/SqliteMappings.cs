@@ -72,7 +72,9 @@ internal static class SqliteMappings
         reader.GetInt32(17),
         reader.IsDBNull(18) ? null : Guid.Parse(reader.GetString(18)),
         reader.IsDBNull(19) ? null : reader.GetString(19),
-        reader.IsDBNull(20) ? null : ToTimestamp(reader.GetString(20)));
+        reader.IsDBNull(20) ? null : ToTimestamp(reader.GetString(20)),
+        reader.IsDBNull(21) ? null : Guid.Parse(reader.GetString(21)),
+        reader.IsDBNull(22) ? null : reader.GetString(22));
 
     public static IssuePriority ParsePriority(string value) =>
         StatusNames.TryParsePriority(value, out var priority)

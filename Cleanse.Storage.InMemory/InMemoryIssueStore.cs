@@ -13,6 +13,12 @@ namespace Cleanse.Storage.InMemory;
 public sealed class InMemoryIssueStore : IIssueStore
 {
     private readonly ConcurrentDictionary<string, IssueSnapshot> _issues = new(StringComparer.Ordinal);
+    private readonly Lock _saveAllGate = new();
+    private readonly InMemoryHoldingStore _holdings;
+
+    /// <summary>The holdings are needed for the assignee filters, which match the holding's assignee.</summary>
+    public InMemoryIssueStore(InMemoryHoldingStore? holdings = null) =>
+        _holdings = holdings ?? new InMemoryHoldingStore();
 
     public int Count => _issues.Count;
 
@@ -87,6 +93,55 @@ public sealed class InMemoryIssueStore : IIssueStore
         }
 
         return Task.FromResult(_issues.TryUpdate(snapshot.Id, snapshot, current));
+    }
+
+    public Task<bool> SaveAllAsync(
+        IReadOnlyCollection<(Issue Issue, int ExpectedVersion)> issues,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(issues);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_saveAllGate)
+        {
+            foreach (var (issue, expected) in issues)
+            {
+                if (_issues.TryGetValue(issue.Id.Value, out var current) && current.Version != expected)
+                {
+                    return Task.FromResult(false);
+                }
+            }
+
+            foreach (var (issue, _) in issues)
+            {
+                var snapshot = issue.ToSnapshot();
+                _issues[snapshot.Id] = snapshot;
+            }
+
+            return Task.FromResult(true);
+        }
+    }
+
+    public Task<IReadOnlyList<Issue>> GetForHoldingsAsync(
+        string groupId,
+        IReadOnlyCollection<string> cphs,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
+        ArgumentNullException.ThrowIfNull(cphs);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var wanted = cphs.ToHashSet(StringComparer.Ordinal);
+        IReadOnlyList<Issue> found =
+        [
+            .. _issues.Values
+                .Where(s => string.Equals(s.GroupId, groupId, StringComparison.Ordinal) &&
+                            wanted.Contains(CphOf(s)))
+                .OrderBy(s => s.Id, StringComparer.Ordinal)
+                .Select(Issue.FromSnapshot)
+        ];
+
+        return Task.FromResult(found);
     }
 
     public Task SaveBatchAsync(IReadOnlyCollection<Issue> issues, CancellationToken cancellationToken = default)
@@ -263,7 +318,7 @@ public sealed class InMemoryIssueStore : IIssueStore
             ? source.OrderByDescending(selector).ThenBy(s => s.Id, StringComparer.Ordinal)
             : source.OrderBy(selector).ThenBy(s => s.Id, StringComparer.Ordinal);
 
-    private static bool Matches(IssueSnapshot snapshot, IssueFilter filter)
+    private bool Matches(IssueSnapshot snapshot, IssueFilter filter)
     {
         if (filter.GroupId is { } group && !string.Equals(snapshot.GroupId, group, StringComparison.Ordinal))
         {
@@ -290,19 +345,23 @@ public sealed class InMemoryIssueStore : IIssueStore
             return false;
         }
 
+        var holding = filter.AssignedTo is not null || filter.AssignedUserId is not null || filter.Unassigned is not null
+            ? HoldingOf(snapshot)
+            : null;
+
         if (filter.AssignedTo is { } assignee &&
-            !string.Equals(snapshot.AssignedTo, assignee, StringComparison.OrdinalIgnoreCase))
+            !string.Equals(holding?.AssignedTo, assignee, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        if (filter.AssignedUserId is { } userId && snapshot.AssignedUserId != userId)
+        if (filter.AssignedUserId is { } userId && holding?.AssignedUserId != userId)
         {
             return false;
         }
 
         if (filter.Unassigned is { } unassigned &&
-            (snapshot.AssignedUserId is null && string.IsNullOrWhiteSpace(snapshot.AssignedTo)) != unassigned)
+            (holding?.AssignedUserId is null && string.IsNullOrWhiteSpace(holding?.AssignedTo)) != unassigned)
         {
             return false;
         }
@@ -347,6 +406,14 @@ public sealed class InMemoryIssueStore : IIssueStore
     private static bool MatchesSearchTerm(IssueSnapshot snapshot, string term) =>
         snapshot.Id.Contains(term, StringComparison.OrdinalIgnoreCase) ||
         (snapshot.Notes?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
-        (snapshot.AssignedTo?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false) ||
         snapshot.Context.Values.Any(v => v.Contains(term, StringComparison.OrdinalIgnoreCase));
+
+    private static string CphOf(IssueSnapshot snapshot) =>
+        snapshot.Context.TryGetValue(HoldingKey.CphContextKey, out var cph) ? cph : string.Empty;
+
+    private HoldingSnapshot? HoldingOf(IssueSnapshot snapshot)
+    {
+        var cph = CphOf(snapshot);
+        return string.IsNullOrWhiteSpace(cph) ? null : _holdings.Find(snapshot.GroupId, cph);
+    }
 }

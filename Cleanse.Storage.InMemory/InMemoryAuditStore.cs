@@ -34,18 +34,22 @@ public sealed class InMemoryAuditStore : IAuditStore
     }
 
     /// <summary>
-    /// Hard delete. Entries are keyed by issue or by run, never by group, so a scoped clear has
-    /// to be given the ids. Null for both sets wipes the whole log.
+    /// Hard delete. Entries are keyed by issue, run or subject, never by group, so a scoped clear
+    /// has to be given the ids and the subject prefix. Null for all of them wipes the whole log,
+    /// except entries about the admin-maintained lists, which a reset keeps.
     /// </summary>
-    public int Clear(IReadOnlyCollection<string>? issueIds, IReadOnlyCollection<string>? runIds)
+    public int Clear(
+        IReadOnlyCollection<string>? issueIds,
+        IReadOnlyCollection<string>? runIds,
+        string? subjectPrefix = null)
     {
         lock (_gate)
         {
-            if (issueIds is null && runIds is null)
+            if (issueIds is null && runIds is null && subjectPrefix is null)
             {
-                var all = _entries.Count;
-                _entries.Clear();
-                return all;
+                return _entries.RemoveAll(e =>
+                    e.Subject is not { } subject ||
+                    !subject.StartsWith(AuditSubjects.CodedValuePrefix, StringComparison.Ordinal));
             }
 
             var issues = issueIds?.ToHashSet(StringComparer.Ordinal) ?? [];
@@ -53,7 +57,9 @@ public sealed class InMemoryAuditStore : IAuditStore
 
             return _entries.RemoveAll(e =>
                 (e.IssueId is { } issueId && issues.Contains(issueId.Value)) ||
-                (e.RunId is { } runId && runs.Contains(runId)));
+                (e.RunId is { } runId && runs.Contains(runId)) ||
+                (subjectPrefix is not null && e.Subject is { } subject &&
+                 subject.StartsWith(subjectPrefix, StringComparison.Ordinal)));
         }
     }
 
@@ -86,6 +92,16 @@ public sealed class InMemoryAuditStore : IAuditStore
         ArgumentException.ThrowIfNullOrWhiteSpace(runId);
         return Task.FromResult(Query(
             e => string.Equals(e.RunId, runId, StringComparison.Ordinal), page, cancellationToken));
+    }
+
+    public Task<PagedResult<AuditEntry>> GetForSubjectAsync(
+        string subject,
+        PageRequest page,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        return Task.FromResult(Query(
+            e => string.Equals(e.Subject, subject, StringComparison.Ordinal), page, cancellationToken));
     }
 
     private PagedResult<AuditEntry> Query(

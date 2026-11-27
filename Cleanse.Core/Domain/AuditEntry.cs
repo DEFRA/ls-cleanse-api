@@ -20,7 +20,11 @@ public enum AuditEventKind
     RunAbandoned,
     RunCancellationRequested,
     RunCancelled,
-    RunFailed
+    RunFailed,
+    HoldingAssigned,
+    CodedValueAdded,
+    CodedValueActivated,
+    CodedValueDeactivated
 }
 
 /// <summary>A single field-level change: what it was, what it became.</summary>
@@ -29,7 +33,8 @@ public sealed record AuditChange(string Field, string? From, string? To);
 /// <summary>
 /// An append-only record of a material change. Run lifecycle events carry a null
 /// <see cref="IssueId"/>; the end-of-run sweep records one of these for the whole run rather
-/// than one per deactivated issue.
+/// than one per deactivated issue. A change to anything else, such as a holding's assignee,
+/// names what it was about in <see cref="Subject"/>.
 /// </summary>
 public sealed record AuditEntry
 {
@@ -40,7 +45,8 @@ public sealed record AuditEntry
         AuditEventKind kind,
         Actor actor,
         DateTimeOffset atUtc,
-        IReadOnlyList<AuditChange> changes)
+        IReadOnlyList<AuditChange> changes,
+        string? subject)
     {
         Id = id;
         IssueId = issueId;
@@ -49,6 +55,7 @@ public sealed record AuditEntry
         Actor = actor;
         AtUtc = atUtc;
         Changes = changes;
+        Subject = subject;
     }
 
     public Guid Id { get; }
@@ -65,6 +72,9 @@ public sealed record AuditEntry
 
     public IReadOnlyList<AuditChange> Changes { get; }
 
+    /// <summary>See <see cref="AuditSubjects"/>.</summary>
+    public string? Subject { get; }
+
     public static AuditEntry ForIssue(
         IssueId issueId,
         IssueChange change,
@@ -74,7 +84,30 @@ public sealed record AuditEntry
     {
         ArgumentNullException.ThrowIfNull(change);
         ArgumentNullException.ThrowIfNull(actor);
-        return new AuditEntry(Guid.CreateVersion7(atUtc), issueId, runId, change.Kind, actor, atUtc, change.Changes);
+        return new AuditEntry(Guid.CreateVersion7(atUtc), issueId, runId, change.Kind, actor, atUtc, change.Changes, null);
+    }
+
+    public static AuditEntry ForHolding(
+        HoldingKey holding,
+        IssueChange change,
+        Actor actor,
+        DateTimeOffset atUtc,
+        string? runId = null)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        ArgumentNullException.ThrowIfNull(actor);
+        return new AuditEntry(
+            Guid.CreateVersion7(atUtc), null, runId, change.Kind, actor, atUtc, change.Changes,
+            AuditSubjects.Holding(holding));
+    }
+
+    public static AuditEntry ForCodedValue(Guid id, IssueChange change, Actor actor, DateTimeOffset atUtc)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        ArgumentNullException.ThrowIfNull(actor);
+        return new AuditEntry(
+            Guid.CreateVersion7(atUtc), null, null, change.Kind, actor, atUtc, change.Changes,
+            AuditSubjects.CodedValue(id));
     }
 
     public static AuditEntry ForRun(
@@ -86,7 +119,7 @@ public sealed record AuditEntry
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runId);
         ArgumentNullException.ThrowIfNull(actor);
-        return new AuditEntry(Guid.CreateVersion7(atUtc), null, runId, kind, actor, atUtc, changes ?? []);
+        return new AuditEntry(Guid.CreateVersion7(atUtc), null, runId, kind, actor, atUtc, changes ?? [], null);
     }
 
     public static AuditEntry Rehydrate(
@@ -96,6 +129,21 @@ public sealed record AuditEntry
         AuditEventKind kind,
         Actor actor,
         DateTimeOffset atUtc,
-        IReadOnlyList<AuditChange> changes) =>
-        new(id, issueId, runId, kind, actor, atUtc, changes);
+        IReadOnlyList<AuditChange> changes,
+        string? subject = null) =>
+        new(id, issueId, runId, kind, actor, atUtc, changes, subject);
+}
+
+/// <summary>How an audit entry names a subject that is neither an issue nor a run.</summary>
+public static class AuditSubjects
+{
+    public const string HoldingPrefix = "holding:";
+    public const string CodedValuePrefix = "coded-value:";
+
+    public static string Holding(HoldingKey holding) => $"{HoldingPrefix}{holding.GroupId}:{holding.Cph}";
+
+    /// <summary>Every holding subject in a group starts with this, for a reset scoped to it.</summary>
+    public static string HoldingsInGroup(string groupId) => $"{HoldingPrefix}{groupId}:";
+
+    public static string CodedValue(Guid id) => $"{CodedValuePrefix}{id:D}";
 }

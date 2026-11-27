@@ -11,20 +11,20 @@ public class WorkflowTransitionsTests
         {
             [WorkflowStatus.Todo] =
             [
-                WorkflowStatus.InProgress, WorkflowStatus.Resolved, WorkflowStatus.Ignored,
-                WorkflowStatus.Suppressed, WorkflowStatus.Nonactionable
+                WorkflowStatus.InProgress, WorkflowStatus.Resolved, WorkflowStatus.Suppressed,
+                WorkflowStatus.Nonactionable
             ],
             [WorkflowStatus.InProgress] =
             [
-                WorkflowStatus.Todo, WorkflowStatus.Resolved, WorkflowStatus.Ignored,
-                WorkflowStatus.Suppressed, WorkflowStatus.Nonactionable
+                WorkflowStatus.Todo, WorkflowStatus.Resolved, WorkflowStatus.Suppressed,
+                WorkflowStatus.Nonactionable
             ],
+
+            // Can't resolve took over Ignored's transitions, including from Suppressed and Resolved.
             [WorkflowStatus.Suppressed] =
-                [WorkflowStatus.Todo, WorkflowStatus.InProgress, WorkflowStatus.Resolved, WorkflowStatus.Ignored],
+                [WorkflowStatus.Todo, WorkflowStatus.InProgress, WorkflowStatus.Resolved, WorkflowStatus.Nonactionable],
             [WorkflowStatus.Resolved] =
-                [WorkflowStatus.Todo, WorkflowStatus.InProgress, WorkflowStatus.Ignored],
-            [WorkflowStatus.Ignored] =
-                [WorkflowStatus.Todo, WorkflowStatus.InProgress],
+                [WorkflowStatus.Todo, WorkflowStatus.InProgress, WorkflowStatus.Nonactionable],
 
             // Terminal like Resolved: reopenable, but not reclassifiable straight to another outcome.
             [WorkflowStatus.Nonactionable] =
@@ -49,15 +49,15 @@ public class WorkflowTransitionsTests
         Assert.Equal(allowed, WorkflowTransitions.IsAllowed(from, to));
 
     [Fact]
-    public void A_resolved_issue_cannot_be_suppressed_directly()
+    public void A_closed_issue_cannot_be_suppressed_directly()
     {
         Assert.False(WorkflowTransitions.IsAllowed(WorkflowStatus.Resolved, WorkflowStatus.Suppressed));
-        Assert.False(WorkflowTransitions.IsAllowed(WorkflowStatus.Ignored, WorkflowStatus.Suppressed));
+        Assert.False(WorkflowTransitions.IsAllowed(WorkflowStatus.Nonactionable, WorkflowStatus.Suppressed));
     }
 
     [Theory]
     [InlineData(WorkflowStatus.Resolved, WorkflowStatus.Suppressed)]
-    [InlineData(WorkflowStatus.Ignored, WorkflowStatus.Resolved)]
+    [InlineData(WorkflowStatus.Nonactionable, WorkflowStatus.Resolved)]
     public void Disallowed_transitions_are_rejected_by_the_aggregate(WorkflowStatus from, WorkflowStatus to)
     {
         var issue = TestData.NewIssue("12/345/6789");
@@ -67,7 +67,8 @@ public class WorkflowTransitionsTests
         }
         else
         {
-            Assert.True(issue.ChangeWorkflowStatus(from, TestData.Night1).IsSuccess);
+            var reason = from == WorkflowStatus.Nonactionable ? new OutcomeReason(Guid.NewGuid(), "Duplicate") : null;
+            Assert.True(issue.ChangeWorkflowStatus(from, TestData.Night1, reason).IsSuccess);
         }
 
         var result = issue.ChangeWorkflowStatus(to, TestData.Night1);

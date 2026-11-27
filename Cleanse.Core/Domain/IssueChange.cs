@@ -76,4 +76,9 @@ public sealed record IssueSnapshot(
     int Version,
     Guid? AssignedUserId = null,
     string? AssignedUserFullName = null,
-    DateTimeOffset? AssignmentDetachedAtUtc = null);
+    DateTimeOffset? AssignmentDetachedAtUtc = null,
+    Guid? OutcomeReasonId = null,
+    string? OutcomeReasonName = null);
+
+/// <summary>A reason from the admin-maintained list for an outcome, as an issue records it.</summary>
+public sealed record OutcomeReason(Guid Id, string Name);

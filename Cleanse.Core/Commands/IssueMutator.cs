@@ -1,6 +1,7 @@
 using Cleanse.Core.Abstractions;
 using Cleanse.Core.Contracts;
 using Cleanse.Core.Domain;
+using Cleanse.Core.Queries.Issues;
 
 namespace Cleanse.Core.Commands;
 
@@ -9,7 +10,7 @@ namespace Cleanse.Core.Commands;
 /// commands. Keeps the "only audit and bump the version on a material change" rule in exactly
 /// one place.
 /// </summary>
-internal sealed class IssueMutator(IIssueStore issues, IAuditStore audit, TimeProvider clock)
+internal sealed class IssueMutator(IIssueStore issues, IAuditStore audit, IssueReadModel readModel, TimeProvider clock)
 {
     public async Task<Result<IssueDto>> MutateAsync(
         IssueId issueId,
@@ -42,7 +43,7 @@ internal sealed class IssueMutator(IIssueStore issues, IAuditStore audit, TimePr
         var change = result.Value;
         if (!change.IsMaterial)
         {
-            return issue.ToDto();
+            return await readModel.ToDtoAsync(issue, cancellationToken);
         }
 
         // Always optimistic against what we read, whether or not the caller supplied a precondition.
@@ -52,6 +53,6 @@ internal sealed class IssueMutator(IIssueStore issues, IAuditStore audit, TimePr
         }
 
         await audit.AppendAsync(AuditEntry.ForIssue(issueId, change, actor, now), cancellationToken);
-        return issue.ToDto();
+        return await readModel.ToDtoAsync(issue, cancellationToken);
     }
 }

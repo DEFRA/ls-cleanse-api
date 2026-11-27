@@ -11,5 +11,6 @@ public sealed class InMemoryUserStoreTests : UserStoreContractTests, IDisposable
     protected override IUserStore CreateStore() => _services.GetRequiredService<IUserStore>();
     protected override IIssueStore CreateIssueStore() => _services.GetRequiredService<IIssueStore>();
     protected override IDataResetStore CreateResetStore() => _services.GetRequiredService<IDataResetStore>();
+    protected override IHoldingStore CreateHoldingStore() => _services.GetRequiredService<IHoldingStore>();
     public void Dispose() => _services.Dispose();
 }

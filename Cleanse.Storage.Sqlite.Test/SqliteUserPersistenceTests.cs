@@ -29,6 +29,9 @@ public sealed class SqliteUserPersistenceTests
                 schema = schema[..schema.IndexOf("CREATE TABLE IF NOT EXISTS users (", StringComparison.Ordinal)];
                 schema = Regex.Replace(schema, @"^\s*assign(ed_user_(id|full_name)|ment_detached_at_utc).*\r?\n", "", RegexOptions.Multiline);
                 schema = Regex.Replace(schema, @"^\s*(tenant_id|client_id).*\r?\n", "", RegexOptions.Multiline);
+                // As the release before holdings: no outcome reasons or audit subjects, and Ignored allowed.
+                schema = Regex.Replace(schema, @"^\s*(outcome_reason(_id)?|subject)\s.*\r?\n", "", RegexOptions.Multiline);
+                schema = schema.Replace("'resolved', 'nonactionable'", "'resolved', 'ignored', 'nonactionable'", StringComparison.Ordinal);
                 // The users table as the first release of the directory created it.
                 schema += """
                     CREATE TABLE users (
@@ -48,6 +51,13 @@ public sealed class SqliteUserPersistenceTests
                          created_at_utc, updated_at_utc, activated_at_utc, version)
                     VALUES ('rule:legacy', 'group', 'rule', 'run', 'active', 'todo', 'legacy-name',
                             $now, $now, $now, 1);
+                    INSERT INTO issues
+                        (id, group_id, rule_id, run_id, status, workflow_status, assigned_to, context,
+                         created_at_utc, updated_at_utc, activated_at_utc, version)
+                    VALUES ('rule:ignored', 'group', 'rule', 'run', 'active', 'ignored', 'Closed Owner',
+                            '{"cph":"01/001/0001"}', $now, $now, $now, 1),
+                           ('rule2:open', 'group', 'rule2', 'run', 'active', 'in-progress', 'Open Owner',
+                            '{"cph":"01/001/0001"}', $now, $now, $now, 1);
                     INSERT INTO users VALUES
                         ($legacy, 'https://issuer.example.test', 'legacy-subject', 'tenant', 'legacy-object',
                          'client', 'Legacy Person', $now, $now);
@@ -68,6 +78,12 @@ public sealed class SqliteUserPersistenceTests
                 Assert.Equal("legacy-name", legacy!.AssignedTo);
                 Assert.Null(legacy.AssignedUserId);
                 Assert.Null(legacy.AssignmentDetachedAtUtc);
+
+                // Ignored merged into Can't resolve, and the holding took the open issue's assignee.
+                Assert.Equal(WorkflowStatus.Nonactionable, (await issues.GetAsync(IssueId.From("rule:ignored")))!.WorkflowStatus);
+                var holding = await new SqliteHoldingStore(database).GetAsync(new HoldingKey("group", "01/001/0001"));
+                Assert.Equal("Open Owner", holding!.AssignedTo);
+                Assert.Equal(1, holding.Version);
                 var users = new SqliteUserStore(database);
                 var legacyUser = (await users.GetAsync(LegacyUserId))!;
                 Assert.Equal("Legacy Person", legacyUser.FullName);

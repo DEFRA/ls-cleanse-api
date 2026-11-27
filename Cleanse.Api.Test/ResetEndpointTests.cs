@@ -24,7 +24,8 @@ internal static class ResetSeed
         await client.PostJsonAsync($"/v1/runs/{runId}/complete", new { });
 
         var first = Id($"{cphPrefix}-a");
-        await client.PutJsonAsync($"/v1/issues/{first}/assignee", new { assignTo = "alice" });
+        await client.PostJsonAsync(
+            "/v1/holdings/notes", new { groupId = group, cph = $"{cphPrefix}-a", text = "chased the keeper" });
         await client.PostJsonAsync(
             $"/v1/issues/{first}/history",
             new { actionType = "PhoneCall", comments = "chased the keeper" });
@@ -69,6 +70,7 @@ public class GlobalResetTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(2, counts.GetProperty("issues").GetInt32());
         Assert.Equal(1, counts.GetProperty("issueHistoryEntries").GetInt32());
         Assert.Equal(1, counts.GetProperty("ruleRuns").GetInt32());
+        Assert.Equal(1, counts.GetProperty("holdingNotes").GetInt32());
         Assert.True(counts.GetProperty("auditEntries").GetInt32() > 0);
 
         // A proper delete, not the end-of-run deactivation: the rows are gone, not just inactive.
@@ -110,10 +112,13 @@ public class ResetScopeAndGuardTests(ApiFactory factory) : IClassFixture<ApiFact
         Assert.Equal(2, counts.GetProperty("issues").GetInt32());
         Assert.Equal(1, counts.GetProperty("issueHistoryEntries").GetInt32());
         Assert.Equal(1, counts.GetProperty("ruleRuns").GetInt32());
+        Assert.Equal(1, counts.GetProperty("holdingNotes").GetInt32());
 
         Assert.Equal(0, await ResetSeed.CountIssuesAsync(client, doomed));
         Assert.Equal(2, await ResetSeed.CountIssuesAsync(client, spared));
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync($"/v1/runs/{sparedRunId}")).StatusCode);
+        var sparedHolding = await (await client.GetAsync($"/v1/holdings?groupId={spared}&cph=spared-a")).ReadJsonAsync();
+        Assert.Equal("chased the keeper", sparedHolding.GetProperty("notes")[0].GetProperty("text").GetString());
 
         // History and audit are keyed by issue, not by group, so this is where a scoped delete
         // would most easily take too much.

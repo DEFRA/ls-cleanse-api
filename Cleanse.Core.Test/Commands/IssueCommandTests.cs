@@ -1,3 +1,4 @@
+using Cleanse.Core.Commands.CodedValues;
 using Cleanse.Core.Commands.History;
 using Cleanse.Core.Commands.Issues;
 using Cleanse.Core.Commands.Runs;
@@ -22,34 +23,71 @@ public class IssueCommandTests
         return harness;
     }
 
+    private static async Task<Guid> ReasonAsync(CleanseHarness harness, CodedList list, string name) =>
+        (await harness.SendAsync(new AddCodedValueCommand(list, name, TestData.Alice))).Id;
+
     [Fact]
-    public async Task Assigning_records_who_did_it()
+    public async Task Cant_resolve_needs_a_reason_from_its_own_list()
     {
         using var harness = await HarnessWithIssueAsync();
+        var fixedInSam = await ReasonAsync(harness, CodedList.ResolvedReason, "Fixed in SAM");
+        var duplicate = await ReasonAsync(harness, CodedList.CantResolveReason, "Duplicate");
 
-        var issue = await harness.SendAsync(new AssignIssueCommand(Id, "bob", TestData.Alice));
+        var none = await harness.TrySendAsync(
+            new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.Nonactionable, TestData.Alice));
+        var wrongList = await harness.TrySendAsync(
+            new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.Nonactionable, TestData.Alice, ReasonId: fixedInSam));
 
-        Assert.Equal("bob", issue.AssignedTo);
+        Assert.Equal(ErrorCodes.IssueReasonRequired, none.Error!.Code);
+        Assert.Equal(ErrorCodes.ValidationFailed, wrongList.Error!.Code);
+
+        var issue = await harness.SendAsync(
+            new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.Nonactionable, TestData.Alice, ReasonId: duplicate));
+
+        Assert.Equal("nonactionable", issue.WorkflowStatus);
+        Assert.Equal(duplicate, issue.OutcomeReasonId);
+        Assert.Equal("Duplicate", issue.OutcomeReason);
 
         var audit = await harness.QueryAsync(new GetIssueAuditQuery(Id));
-        var entry = Assert.Single(audit.Items, e => e.Kind == nameof(AuditEventKind.IssueAssigned));
-        Assert.Equal("alice", entry.ActorId);
-        Assert.Equal("human", entry.ActorKind);
-        Assert.Equal("bob", Assert.Single(entry.Changes, c => c.Field == "AssignedTo").To);
-        Assert.Contains(entry.Changes, c => c.Field == "AssignmentDetachedAtUtc");
+        var entry = audit.Items.First(e => e.Kind == nameof(AuditEventKind.IssueWorkflowStatusChanged));
+        Assert.Equal("Duplicate", Assert.Single(entry.Changes, c => c.Field == "OutcomeReason").To);
     }
 
     [Fact]
-    public async Task Re_assigning_to_the_same_person_writes_no_audit_entry()
+    public async Task Resolved_takes_a_reason_only_if_given_and_reopening_clears_it()
     {
         using var harness = await HarnessWithIssueAsync();
-        await harness.SendAsync(new AssignIssueCommand(Id, "bob", TestData.Alice));
-        var before = (await harness.QueryAsync(new GetIssueAuditQuery(Id))).TotalCount;
+        var fixedInSam = await ReasonAsync(harness, CodedList.ResolvedReason, "Fixed in SAM");
 
-        var issue = await harness.SendAsync(new AssignIssueCommand(Id, "bob", TestData.Alice));
+        var withoutReason = await harness.SendAsync(
+            new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.Resolved, TestData.Alice));
+        Assert.Null(withoutReason.OutcomeReasonId);
 
-        Assert.Equal("bob", issue.AssignedTo);
-        Assert.Equal(before, (await harness.QueryAsync(new GetIssueAuditQuery(Id))).TotalCount);
+        var withReason = await harness.SendAsync(
+            new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.Resolved, TestData.Alice, ReasonId: fixedInSam));
+        Assert.Equal("resolved", withReason.WorkflowStatus);
+        Assert.Equal("Fixed in SAM", withReason.OutcomeReason);
+
+        var reopened = await harness.SendAsync(new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.Todo, TestData.Alice));
+        Assert.Null(reopened.OutcomeReasonId);
+        Assert.Null(reopened.OutcomeReason);
+    }
+
+    [Fact]
+    public async Task A_reason_is_refused_for_a_status_that_is_not_an_outcome_or_when_switched_off()
+    {
+        using var harness = await HarnessWithIssueAsync();
+        var reason = await ReasonAsync(harness, CodedList.ResolvedReason, "Fixed in SAM");
+
+        var notAnOutcome = await harness.TrySendAsync(
+            new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.InProgress, TestData.Alice, ReasonId: reason));
+        await harness.SendAsync(new SetCodedValueActiveCommand(CodedList.ResolvedReason, reason, false, TestData.Alice));
+        var switchedOff = await harness.TrySendAsync(
+            new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.Resolved, TestData.Alice, ReasonId: reason));
+
+        Assert.Equal(ErrorCodes.ValidationFailed, notAnOutcome.Error!.Code);
+        Assert.Equal(ErrorCodes.ValidationFailed, switchedOff.Error!.Code);
+        Assert.Equal("todo", (await harness.QueryAsync(new GetIssueQuery(Id))).WorkflowStatus);
     }
 
     [Fact]
@@ -70,7 +108,9 @@ public class IssueCommandTests
     public async Task An_illegal_transition_is_refused()
     {
         using var harness = await HarnessWithIssueAsync();
-        await harness.SendAsync(new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.Ignored, TestData.Alice));
+        var duplicate = await ReasonAsync(harness, CodedList.CantResolveReason, "Duplicate");
+        await harness.SendAsync(
+            new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.Nonactionable, TestData.Alice, ReasonId: duplicate));
 
         var result = await harness.TrySendAsync(
             new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.Resolved, TestData.Alice));
@@ -96,7 +136,7 @@ public class IssueCommandTests
     {
         using var harness = new CleanseHarness();
 
-        var result = await harness.TrySendAsync(new AssignIssueCommand(TestData.Key("ghost"), "bob", TestData.Alice));
+        var result = await harness.TrySendAsync(new SetIssueNotesCommand(TestData.Key("ghost"), "hello", TestData.Alice));
 
         Assert.True(result.IsFailure);
         Assert.Equal(ErrorCodes.IssueNotFound, result.Error.Code);
@@ -108,7 +148,8 @@ public class IssueCommandTests
         using var harness = await HarnessWithIssueAsync();
         var original = await harness.QueryAsync(new GetIssueQuery(Id));
 
-        await harness.SendAsync(new AssignIssueCommand(Id, "bob", TestData.Alice, original.Version));
+        await harness.SendAsync(new SetIssueWorkflowStatusCommand(
+            Id, WorkflowStatus.InProgress, TestData.Alice, original.Version));
 
         var stale = await harness.TrySendAsync(
             new SetIssueNotesCommand(Id, "written against an old copy", TestData.Alice, original.Version));
@@ -122,7 +163,7 @@ public class IssueCommandTests
     public async Task Omitting_the_expected_version_lets_the_last_writer_win()
     {
         using var harness = await HarnessWithIssueAsync();
-        await harness.SendAsync(new AssignIssueCommand(Id, "bob", TestData.Alice));
+        await harness.SendAsync(new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.InProgress, TestData.Alice));
 
         var issue = await harness.SendAsync(new SetIssueNotesCommand(Id, "fine", TestData.Alice));
 
@@ -167,7 +208,7 @@ public class IssueCommandTests
     public async Task The_audit_trail_reads_back_newest_first()
     {
         using var harness = await HarnessWithIssueAsync();
-        await harness.SendAsync(new AssignIssueCommand(Id, "bob", TestData.Alice));
+        await harness.SendAsync(new SetIssueWorkflowStatusCommand(Id, WorkflowStatus.InProgress, TestData.Alice));
         harness.Clock.AdvanceDays(1);
         await harness.SendAsync(new SetIssueNotesCommand(Id, "chased", TestData.Alice));
 
@@ -176,7 +217,7 @@ public class IssueCommandTests
         Assert.Equal(
             [
                 nameof(AuditEventKind.IssueNotesChanged),
-                nameof(AuditEventKind.IssueAssigned),
+                nameof(AuditEventKind.IssueWorkflowStatusChanged),
                 nameof(AuditEventKind.IssueCreated)
             ],
             audit.Items.Select(e => e.Kind).ToArray());

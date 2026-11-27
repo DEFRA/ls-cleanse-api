@@ -23,7 +23,7 @@ public static class IssueEndpoints
         group.MapGet(string.Empty, Search)
             .WithName("SearchIssues")
             .WithSummary("Search issues.")
-            .WithDescription("Filter by assignedUserId (nonempty GUID), or unassigned=true for issues with neither a stable user nor nonblank legacy assignee. These filters cannot be combined. Omitted filters or unassigned=false include all assignments.")
+            .WithDescription("Filter by assignedUserId (nonempty GUID), or unassigned=true for issues whose holding has no assignee. Assignment belongs to the holding: an issue matches through the holding its CPH names. These filters cannot be combined. Omitted filters or unassigned=false include all assignments.")
             .Produces<PagedResult<IssueDto>>()
             .ProducesProblem(StatusCodes.Status400BadRequest);
         group.MapGet("/by-cph", SearchByCph)
@@ -37,14 +37,6 @@ public static class IssueEndpoints
             .WithSummary("Fetch a single issue.")
             .Produces<IssueDto>()
             .ProducesProblem(StatusCodes.Status404NotFound);
-        group.MapPut("/{id}/assignee", Assign)
-            .WithName("AssignIssue")
-            .WithSummary("Assign or unassign an issue.")
-            .WithDescription("Send userId (null to unassign), or the legacy assignTo text. Either way the assignment then belongs to Cleanse: later SPOL imports leave it unchanged.")
-            .Produces<IssueDto>()
-            .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status404NotFound)
-            .ProducesProblem(StatusCodes.Status409Conflict);
         group.MapPut("/{id}/notes", SetNotes)
             .WithName("SetIssueNotes")
             .WithSummary("Replace an issue's notes.")
@@ -54,6 +46,7 @@ public static class IssueEndpoints
         group.MapPut("/{id}/workflow-status", SetWorkflowStatus)
             .WithName("SetIssueWorkflowStatus")
             .WithSummary("Move an issue along the human triage axis.")
+            .WithDescription("An outcome (resolved, or nonactionable, shown as Can't resolve) takes a reasonId from its list: resolved-reasons, optionally, or cant-resolve-reasons, which is required. To change several of a holding's issues at once, use UpdateHoldingIssues.")
             .Produces<IssueDto>()
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -135,38 +128,6 @@ public static class IssueEndpoints
         return result.ToHttpResult();
     }
 
-    private static async Task<IResult> Assign(
-        string id,
-        AssignIssueRequest request,
-        ClaimsPrincipal user,
-        IAuthorizationService authorization,
-        ICleanseDispatcher dispatcher,
-        CancellationToken cancellationToken)
-    {
-        if (request.HasUserId)
-        {
-            if (!(await authorization.AuthorizeAsync(user, null, CleansePolicies.UserDirectory)).Succeeded)
-            {
-                return TypedResults.Forbid();
-            }
-
-            if (request.AssignTo is not null)
-            {
-                return TypedResults.Problem(title: "Invalid request", statusCode: 400,
-                    detail: "Supply userId or legacy assignTo, not both.");
-            }
-
-            var assigned = await dispatcher.SendAsync(new AssignKnownUserCommand(
-                ParseIssueId(id), request.UserId, user.ToActor(), request.ExpectedVersion), cancellationToken);
-            return assigned.ToHttpResult();
-        }
-
-        var result = await dispatcher.SendAsync(
-            new AssignIssueCommand(ParseIssueId(id), request.AssignTo, user.ToActor(), request.ExpectedVersion),
-            cancellationToken);
-        return result.ToHttpResult();
-    }
-
     private static async Task<IResult> SetNotes(
         string id,
         SetNotesRequest request,
@@ -196,7 +157,8 @@ public static class IssueEndpoints
         }
 
         var result = await dispatcher.SendAsync(
-            new SetIssueWorkflowStatusCommand(ParseIssueId(id), status, user.ToActor(), request.ExpectedVersion),
+            new SetIssueWorkflowStatusCommand(
+                ParseIssueId(id), status, user.ToActor(), request.ExpectedVersion, request.ReasonId),
             cancellationToken);
         return result.ToHttpResult();
     }

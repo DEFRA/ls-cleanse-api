@@ -61,12 +61,12 @@ public class ImportEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
                 Guid.NewGuid().ToString(), person, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow), []);
         }
         var id = await SeedIssueAsync(client, group, group, "1");
-        var issues = services.ServiceProvider.GetRequiredService<IIssueStore>();
-        var issue = (await issues.GetAsync(IssueId.From(id)))!;
-        var originalVersion = issue.Version;
+        var holdings = services.ServiceProvider.GetRequiredService<IHoldingStore>();
+
         // As an earlier import would have left it, so this import may still change it.
-        issue.SyncAssignment(known, null, DateTimeOffset.UtcNow);
-        Assert.True(await issues.SaveAsync(issue, originalVersion));
+        var earlier = Holding.New(new HoldingKey(group, group), DateTimeOffset.UtcNow);
+        earlier.SyncAssignment(known, null, DateTimeOffset.UtcNow);
+        Assert.True(await holdings.SaveAsync(earlier, 0));
 
         async Task<(System.Text.Json.JsonElement Issue, System.Text.Json.JsonElement Report)> RunAsync()
         {
@@ -126,13 +126,12 @@ public class ImportEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var users = scope.ServiceProvider.GetRequiredService<IUserStore>();
         var user = await users.UpsertLoginAsync(new KnownUser(Guid.NewGuid(), "issuer", group,
             "tenant", Guid.NewGuid().ToString(), "client", "Example Person", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow), []);
-        var store = scope.ServiceProvider.GetRequiredService<IIssueStore>();
-        var issue = (await store.GetAsync(IssueId.From(id)))!;
-        var version = issue.Version;
-        issue.AssignKnownUser(user, DateTimeOffset.UtcNow);
-        await store.SaveAsync(issue, version);
+        var holding = Holding.New(new HoldingKey(group, group), DateTimeOffset.UtcNow);
+        holding.AssignKnownUser(user, DateTimeOffset.UtcNow);
+        Assert.True(await scope.ServiceProvider.GetRequiredService<IHoldingStore>().SaveAsync(holding, 0));
         var result = await (await client.GetAsync($"/v1/issues?groupId={group}&assignedUserId={user.Id}")).ReadJsonAsync();
         Assert.Equal(1, result.GetProperty("totalCount").GetInt32());
+        Assert.Equal(id, result.GetProperty("items")[0].GetProperty("id").GetString());
         Assert.Equal(0, (await (await client.GetAsync($"/v1/issues?groupId={group}&unassigned=true")).ReadJsonAsync())
             .GetProperty("totalCount").GetInt32());
         Assert.Equal(1, (await (await client.GetAsync($"/v1/issues?groupId={group}&unassigned=false")).ReadJsonAsync())
@@ -149,11 +148,10 @@ public class ImportEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var users = scope.ServiceProvider.GetRequiredService<IUserStore>();
         var known = await users.UpsertLoginAsync(new KnownUser(Guid.NewGuid(), "issuer", group, "tenant",
             Guid.NewGuid().ToString(), "client", "Example Person", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow), []);
-        var store = scope.ServiceProvider.GetRequiredService<IIssueStore>();
-        var issue = (await store.GetAsync(IssueId.From(id)))!;
-        var version = issue.Version;
-        issue.AssignKnownUser(known, DateTimeOffset.UtcNow);
-        await store.SaveAsync(issue, version);
+        var holdings = scope.ServiceProvider.GetRequiredService<IHoldingStore>();
+        var holding = Holding.New(new HoldingKey(group, group), DateTimeOffset.UtcNow);
+        holding.SyncAssignment(known, null, DateTimeOffset.UtcNow);
+        Assert.True(await holdings.SaveAsync(holding, 0));
         var csv = $"CPH,Rule No,Status,Notes,Priority,Date Received\n{group},1,Completed,updated,Low,";
         using var upload = new MultipartFormDataContent
         {
@@ -164,10 +162,39 @@ public class ImportEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
         var jobId = (await response.ReadJsonAsync()).GetProperty("id").GetGuid();
         Assert.Equal("completed", (await WaitForCompletionAsync(client, jobId)).GetProperty("status").GetString());
-        var updated = (await store.GetAsync(issue.Id))!;
+        var updated = (await holdings.GetAsync(holding.Key))!;
         Assert.Equal(known.Id, updated.AssignedUserId);
         Assert.Equal(known.FullName, updated.AssignedTo);
-        Assert.Equal("updated", updated.ExternalNotes);
+        var issue = await (await client.GetAsync($"/v1/issues/{id}")).ReadJsonAsync();
+        Assert.Equal("updated", issue.GetProperty("externalNotes").GetString());
+    }
+
+    [Fact]
+    public async Task Rows_for_one_cph_naming_different_people_give_the_holding_one_and_warn()
+    {
+        using var client = factory.CreateAuthenticatedClient();
+        var group = $"conflict-{Guid.NewGuid():N}";
+
+        // Issue ids leave the group out, so a CPH another test seeds would be a group mismatch.
+        var cph = $"01/036/{Guid.NewGuid():N}";
+        await SeedIssuesAsync(client, group, (cph, "1"), (cph, "2"));
+
+        using var upload = Upload(group,
+            Row(cph, "2", "In progress").Replace("a@b.gov.uk", "Bob Open", StringComparison.Ordinal),
+            Row(cph, "1", "Completed").Replace("a@b.gov.uk", "Alice Closed", StringComparison.Ordinal));
+        var response = await client.PostAsync("/v1/imports", upload);
+        var jobId = (await response.ReadJsonAsync()).GetProperty("id").GetGuid();
+        Assert.Equal("completed", (await WaitForCompletionAsync(client, jobId)).GetProperty("status").GetString());
+
+        var holding = await (await client.GetAsync($"/v1/holdings?groupId={group}&cph={Uri.EscapeDataString(cph)}")).ReadJsonAsync();
+        Assert.Equal("Bob Open", holding.GetProperty("assignedTo").GetString());
+        Assert.Equal("in-progress", holding.GetProperty("status").GetString());
+
+        var rejections = await (await client.GetAsync($"/v1/imports/{jobId}/rejections")).ReadJsonAsync();
+        var conflict = Assert.Single(rejections.GetProperty("items").EnumerateArray(),
+            r => r.GetProperty("reason").GetString() == "assignee_conflict");
+        Assert.Contains(cph, conflict.GetProperty("detail").GetString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Alice", conflict.GetProperty("detail").GetString(), StringComparison.Ordinal);
     }
 
     [Theory]
@@ -182,19 +209,28 @@ public class ImportEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsync("/v1/imports", upload)).StatusCode);
     }
 
-    private async Task<string> SeedIssueAsync(HttpClient client, string group, string cph, string ruleNo)
+    private static async Task<string> SeedIssueAsync(HttpClient client, string group, string cph, string ruleNo) =>
+        (await SeedIssuesAsync(client, group, (cph, ruleNo)))[0];
+
+    private static async Task<string[]> SeedIssuesAsync(HttpClient client, string group, params (string Cph, string RuleNo)[] issues)
     {
         var start = await client.PostJsonAsync("/v1/runs", new { groupId = group });
         var runId = (await start.ReadJsonAsync()).GetProperty("runId").GetString()!;
 
-        // The import matches on the key the rules engine produces, so it is built the same way.
-        var id = IssueId.Derive(ruleNo, cph).Value;
+        // The import matches on the key the rules engine produces, so it is built the same way,
+        // and the issue carries its CPH as the engine writes it, which names its holding.
+        var ids = issues.Select(issue => IssueId.Derive(issue.RuleNo, issue.Cph).Value).ToArray();
         await client.PostJsonAsync($"/v1/runs/{runId}/detections", new
         {
-            detections = new[] { new { id, ruleId = ruleNo, context = new Dictionary<string, string>() } }
+            detections = issues.Select((issue, index) => new
+            {
+                id = ids[index],
+                ruleId = issue.RuleNo,
+                context = new Dictionary<string, string> { ["cph"] = issue.Cph }
+            }).ToArray()
         });
         await client.PostJsonAsync($"/v1/runs/{runId}/complete", new { });
-        return id;
+        return ids;
     }
 
     private static async Task<System.Text.Json.JsonElement> WaitForCompletionAsync(

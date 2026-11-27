@@ -11,7 +11,18 @@ internal sealed class SqliteIssueStore(CleanseSqliteDatabase database, CleanseSq
         "id, group_id, rule_id, run_id, status, workflow_status, assigned_to, notes, " +
         "external_notes, priority, external_received_at_utc, suppression_expires_at_utc, " +
         "context, created_at_utc, updated_at_utc, activated_at_utc, deactivated_at_utc, version, " +
-        "assigned_user_id, assigned_user_full_name, assignment_detached_at_utc";
+        "assigned_user_id, assigned_user_full_name, assignment_detached_at_utc, outcome_reason_id, outcome_reason";
+
+    private const string Values = """
+        ($id, $group_id, $rule_id, $run_id, $status, $workflow_status, $assigned_to, $notes,
+         $external_notes, $priority, $external_received_at_utc, $suppression_expires_at_utc,
+         $context, $created_at_utc, $updated_at_utc, $activated_at_utc,
+         $deactivated_at_utc, $version, $assigned_user_id, $assigned_user_full_name,
+         $assignment_detached_at_utc, $outcome_reason_id, $outcome_reason)
+        """;
+
+    /// <summary>The CPH an issue belongs to, as the holding filters and lookups spell it.</summary>
+    internal const string CphOfIssue = "COALESCE(json_extract(issues.context, '$.cph'), '')";
 
     private const string UpsertAssignments = """
             group_id = excluded.group_id,
@@ -32,7 +43,9 @@ internal sealed class SqliteIssueStore(CleanseSqliteDatabase database, CleanseSq
             updated_at_utc = excluded.updated_at_utc,
             activated_at_utc = excluded.activated_at_utc,
             deactivated_at_utc = excluded.deactivated_at_utc,
-            version = excluded.version
+            version = excluded.version,
+            outcome_reason_id = excluded.outcome_reason_id,
+            outcome_reason = excluded.outcome_reason
         """;
 
     public async Task<Issue?> GetAsync(IssueId id, CancellationToken cancellationToken = default)
@@ -97,11 +110,7 @@ internal sealed class SqliteIssueStore(CleanseSqliteDatabase database, CleanseSq
         var guard = expectedVersion is null ? string.Empty : "WHERE issues.version = $expected_version";
         command.CommandText = $"""
             INSERT INTO issues ({Columns})
-            VALUES ($id, $group_id, $rule_id, $run_id, $status, $workflow_status, $assigned_to, $notes,
-                    $external_notes, $priority, $external_received_at_utc, $suppression_expires_at_utc,
-                        $context, $created_at_utc, $updated_at_utc, $activated_at_utc,
-                        $deactivated_at_utc, $version, $assigned_user_id, $assigned_user_full_name,
-                        $assignment_detached_at_utc)
+            VALUES {Values}
             ON CONFLICT (id) DO UPDATE SET
             {UpsertAssignments}
             {guard}
@@ -114,6 +123,85 @@ internal sealed class SqliteIssueStore(CleanseSqliteDatabase database, CleanseSq
         }
 
         return await command.ExecuteNonQueryAsync(cancellationToken) > 0;
+    }
+
+    public async Task<bool> SaveAllAsync(
+        IReadOnlyCollection<(Issue Issue, int ExpectedVersion)> issues,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(issues);
+        if (issues.Count == 0)
+        {
+            return true;
+        }
+
+        await using var connection = await database.OpenAsync(cancellationToken);
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"""
+            INSERT INTO issues ({Columns})
+            VALUES {Values}
+            ON CONFLICT (id) DO UPDATE SET
+            {UpsertAssignments}
+            WHERE issues.version = $expected_version
+            """;
+
+        foreach (var (issue, expected) in issues)
+        {
+            command.Parameters.Clear();
+            Bind(command, issue.ToSnapshot());
+            command.Bind("$expected_version", expected);
+
+            if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return false;
+            }
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<IReadOnlyList<Issue>> GetForHoldingsAsync(
+        string groupId,
+        IReadOnlyCollection<string> cphs,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(groupId);
+        ArgumentNullException.ThrowIfNull(cphs);
+        if (cphs.Count == 0)
+        {
+            return [];
+        }
+
+        await using var connection = await database.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+
+        var names = new List<string>(cphs.Count);
+        foreach (var cph in cphs.Distinct(StringComparer.Ordinal))
+        {
+            var name = $"$cph{names.Count}";
+            names.Add(name);
+            command.Bind(name, cph);
+        }
+
+        command.CommandText = $"""
+            SELECT {Columns} FROM issues
+            WHERE group_id = $group_id AND {CphOfIssue} IN ({string.Join(", ", names)})
+            ORDER BY id
+            """;
+        command.Bind("$group_id", groupId);
+
+        var found = new List<Issue>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            found.Add(Issue.FromSnapshot(SqliteMappings.ReadIssue(reader)));
+        }
+
+        return found;
     }
 
     public async Task SaveBatchAsync(
@@ -137,11 +225,7 @@ internal sealed class SqliteIssueStore(CleanseSqliteDatabase database, CleanseSq
             command.Transaction = transaction;
             command.CommandText = $"""
                 INSERT INTO issues ({Columns})
-                VALUES ($id, $group_id, $rule_id, $run_id, $status, $workflow_status, $assigned_to, $notes,
-                        $external_notes, $priority, $external_received_at_utc, $suppression_expires_at_utc,
-                        $context, $created_at_utc, $updated_at_utc, $activated_at_utc,
-                        $deactivated_at_utc, $version, $assigned_user_id, $assigned_user_full_name,
-                        $assignment_detached_at_utc)
+                VALUES {Values}
                 ON CONFLICT (id) DO UPDATE SET
                 {UpsertAssignments}
                 """;
@@ -404,5 +488,7 @@ internal sealed class SqliteIssueStore(CleanseSqliteDatabase database, CleanseSq
         command.Bind("$activated_at_utc", snapshot.ActivatedAtUtc.ToText());
         command.Bind("$deactivated_at_utc", snapshot.DeactivatedAtUtc?.ToText());
         command.Bind("$version", snapshot.Version);
+        command.Bind("$outcome_reason_id", snapshot.OutcomeReasonId?.ToString());
+        command.Bind("$outcome_reason", snapshot.OutcomeReasonName);
     }
 }

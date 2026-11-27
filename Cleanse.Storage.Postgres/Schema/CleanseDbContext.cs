@@ -25,6 +25,14 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
     internal DbSet<DataResetRow> DataResets => Set<DataResetRow>();
     internal DbSet<UserRow> Users => Set<UserRow>();
 
+    internal DbSet<HoldingRow> Holdings => Set<HoldingRow>();
+
+    internal DbSet<HoldingNoteRow> HoldingNotes => Set<HoldingNoteRow>();
+
+    internal DbSet<HoldingActionRow> HoldingActions => Set<HoldingActionRow>();
+
+    internal DbSet<CodedValueRow> CodedValues => Set<CodedValueRow>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -39,6 +47,113 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
         ConfigureImportJobs(modelBuilder);
         ConfigureDataResets(modelBuilder);
         ConfigureUsers(modelBuilder);
+        ConfigureCodedValues(modelBuilder);
+        ConfigureHoldings(modelBuilder);
+    }
+
+    /// <summary>
+    /// The admin-maintained lists. Never deleted, by a reset or otherwise, because notes, actions
+    /// and issue outcomes point at their entries.
+    /// </summary>
+    private static void ConfigureCodedValues(ModelBuilder modelBuilder) =>
+        modelBuilder.Entity<CodedValueRow>(entity =>
+        {
+            entity.ToTable(Db.CodedValues, table => table.HasCheckConstraint(
+                "ck_coded_values_list",
+                $"list IN ('{CodedLists.ActionTypes}', '{CodedLists.ResolvedReasons}', '{CodedLists.CantResolveReasons}')"));
+
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(e => e.List).HasColumnName("list").HasMaxLength(32);
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(CodedValue.MaxNameLength);
+            entity.Property(e => e.NameKey).HasColumnName("name_key").HasMaxLength(CodedValue.MaxNameLength);
+            entity.Property(e => e.IsActive).HasColumnName("is_active");
+            entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc");
+            entity.Property(e => e.UpdatedAtUtc).HasColumnName("updated_at_utc");
+
+            entity.HasIndex(e => new { e.List, e.NameKey }).IsUnique().HasDatabaseName("ux_coded_values_list_name");
+        });
+
+    /// <summary>
+    /// What people record against a holding. Keyed by group and CPH like the issues' context, with
+    /// no foreign key to a holding row: a note does not need the holding to have an assignee.
+    /// </summary>
+    private static void ConfigureHoldings(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<HoldingRow>(entity =>
+        {
+            entity.ToTable(Db.Holdings);
+
+            entity.HasKey(e => new { e.GroupId, e.Cph });
+            entity.Property(e => e.GroupId).HasColumnName(Db.Holding.GroupId);
+            entity.Property(e => e.Cph).HasColumnName(Db.Holding.Cph);
+            entity.Property(e => e.AssignedTo).HasColumnName(Db.Holding.AssignedTo);
+            entity.Property(e => e.AssignedUserId).HasColumnName(Db.Holding.AssignedUserId);
+            entity.Property(e => e.AssignedUserFullName).HasColumnName(Db.Holding.AssignedUserFullName);
+            entity.Property(e => e.AssignmentDetachedAtUtc).HasColumnName(Db.Holding.AssignmentDetachedAtUtc);
+            entity.Property(e => e.CreatedAtUtc).HasColumnName(Db.Holding.CreatedAtUtc);
+            entity.Property(e => e.UpdatedAtUtc).HasColumnName(Db.Holding.UpdatedAtUtc);
+            entity.Property(e => e.Version).HasColumnName(Db.Holding.Version);
+
+            entity.HasOne<UserRow>().WithMany().HasForeignKey(e => e.AssignedUserId)
+                .HasConstraintName("fk_holdings_assigned_user")
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // The assignee filter on the triage lists.
+            entity.HasIndex(e => e.AssignedUserId)
+                .HasDatabaseName("ix_holdings_assigned_user")
+                .HasFilter($"{Db.Holding.AssignedUserId} IS NOT NULL");
+        });
+
+        modelBuilder.Entity<HoldingNoteRow>(entity =>
+        {
+            entity.ToTable(Db.HoldingNotes);
+
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Sequence).HasColumnName("sequence").ValueGeneratedOnAdd();
+            entity.Property(e => e.GroupId).HasColumnName("group_id");
+            entity.Property(e => e.Cph).HasColumnName("cph");
+            entity.Property(e => e.Text).HasColumnName("text").HasMaxLength(HoldingNote.MaxLength);
+            entity.Property(e => e.Context).HasColumnName("context").HasMaxLength(HoldingNote.MaxContextLength);
+            entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc");
+            entity.Property(e => e.CreatedById).HasColumnName("created_by_id");
+            entity.Property(e => e.CreatedByDisplayName).HasColumnName("created_by_display_name");
+            entity.Property(e => e.CreatedByKind).HasColumnName("created_by_kind");
+
+            entity.HasIndex(e => new { e.GroupId, e.Cph, e.CreatedAtUtc, e.Sequence })
+                .HasDatabaseName("ix_holding_notes_holding")
+                .IsDescending(false, false, true, true);
+        });
+
+        modelBuilder.Entity<HoldingActionRow>(entity =>
+        {
+            entity.ToTable(Db.HoldingActions);
+
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Sequence).HasColumnName("sequence").ValueGeneratedOnAdd();
+            entity.Property(e => e.BatchId).HasColumnName("batch_id");
+            entity.Property(e => e.GroupId).HasColumnName("group_id");
+            entity.Property(e => e.Cph).HasColumnName("cph");
+            entity.Property(e => e.ActionTypeId).HasColumnName("action_type_id");
+            entity.Property(e => e.ActionTypeName).HasColumnName("action_type_name");
+            entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc");
+            entity.Property(e => e.CreatedById).HasColumnName("created_by_id");
+            entity.Property(e => e.CreatedByDisplayName).HasColumnName("created_by_display_name");
+            entity.Property(e => e.CreatedByKind).HasColumnName("created_by_kind");
+
+            entity.HasOne<CodedValueRow>().WithMany().HasForeignKey(e => e.ActionTypeId)
+                .HasConstraintName("fk_holding_actions_action_type")
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasIndex(e => new { e.GroupId, e.Cph, e.CreatedAtUtc, e.Sequence })
+                .HasDatabaseName("ix_holding_actions_holding")
+                .IsDescending(false, false, true, true);
+
+            // MI counts actions over time.
+            entity.HasIndex(e => e.CreatedAtUtc).HasDatabaseName("ix_holding_actions_created");
+        });
     }
 
     private static void ConfigureUsers(ModelBuilder modelBuilder) =>
@@ -93,8 +208,7 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
                 table.HasCheckConstraint(
                     "ck_issues_workflow_status",
                     $"{Db.Issue.WorkflowStatus} IN ('{StatusNames.Todo}', '{StatusNames.InProgress}', " +
-                    $"'{StatusNames.Suppressed}', '{StatusNames.Resolved}', '{StatusNames.Ignored}', " +
-                    $"'{StatusNames.Nonactionable}')");
+                    $"'{StatusNames.Suppressed}', '{StatusNames.Resolved}', '{StatusNames.Nonactionable}')");
                 table.HasCheckConstraint(
                     "ck_issues_priority",
                     $"{Db.Issue.Priority} IS NULL OR {Db.Issue.Priority} IN " +
@@ -125,6 +239,12 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
             entity.Property(e => e.ActivatedAtUtc).HasColumnName(Db.Issue.ActivatedAtUtc);
             entity.Property(e => e.DeactivatedAtUtc).HasColumnName(Db.Issue.DeactivatedAtUtc);
             entity.Property(e => e.Version).HasColumnName(Db.Issue.Version);
+            entity.Property(e => e.OutcomeReasonId).HasColumnName(Db.Issue.OutcomeReasonId);
+            entity.Property(e => e.OutcomeReason).HasColumnName(Db.Issue.OutcomeReason)
+                .HasMaxLength(CodedValue.MaxNameLength);
+            entity.HasOne<CodedValueRow>().WithMany().HasForeignKey(e => e.OutcomeReasonId)
+                .HasConstraintName("fk_issues_outcome_reason")
+                .OnDelete(DeleteBehavior.Restrict);
 
             // The end-of-run sweep: every active issue in the group the current run did not touch.
             entity.HasIndex(e => new { e.GroupId, e.Status, e.RunId }).HasDatabaseName("ix_issues_sweep");
@@ -215,11 +335,17 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
             entity.Property(e => e.ActorKind).HasColumnName("actor_kind");
             entity.Property(e => e.AtUtc).HasColumnName("at_utc");
             entity.Property(e => e.Changes).HasColumnName("changes").HasColumnType("jsonb");
+            entity.Property(e => e.Subject).HasColumnName("subject");
 
             entity.HasIndex(e => new { e.IssueId, e.AtUtc, e.Sequence })
                 .HasDatabaseName("ix_audit_entries_issue")
                 .IsDescending(false, true, true)
                 .HasFilter("issue_id IS NOT NULL");
+
+            entity.HasIndex(e => new { e.Subject, e.AtUtc, e.Sequence })
+                .HasDatabaseName("ix_audit_entries_subject")
+                .IsDescending(false, true, true)
+                .HasFilter("subject IS NOT NULL");
 
             entity.HasIndex(e => new { e.RunId, e.AtUtc, e.Sequence })
                 .HasDatabaseName("ix_audit_entries_run")

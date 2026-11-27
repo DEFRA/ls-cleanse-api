@@ -73,22 +73,22 @@ internal static class SqliteIssueFilter
             predicates.Add($"workflow_status IN ({string.Join(", ", names)})");
         }
 
+        // Assignment belongs to the holding: an issue matches through the holding its CPH names.
         if (filter.AssignedTo is { } assignee)
         {
-            Add("LOWER(assigned_to) = LOWER($f_assignee)", "$f_assignee", assignee);
+            Add(HoldingExists("LOWER(h.assigned_to) = LOWER($f_assignee)"), "$f_assignee", assignee);
         }
 
         if (filter.AssignedUserId is { } userId)
         {
-            Add("assigned_user_id = $f_user", "$f_user", userId.ToString());
+            Add(HoldingExists("h.assigned_user_id = $f_user"), "$f_user", userId.ToString());
         }
 
         if (filter.Unassigned is { } unassigned)
         {
             parameters.Add(("$f_whitespace", Whitespace));
-            predicates.Add(unassigned
-                ? "(assigned_user_id IS NULL AND (assigned_to IS NULL OR TRIM(assigned_to, $f_whitespace) = ''))"
-                : "(assigned_user_id IS NOT NULL OR TRIM(assigned_to, $f_whitespace) <> '')");
+            var assigned = HoldingExists("(h.assigned_user_id IS NOT NULL OR TRIM(h.assigned_to, $f_whitespace) <> '')");
+            predicates.Add(unassigned ? $"NOT {assigned}" : assigned);
         }
 
         if (filter.CreatedAfterUtc is { } createdAfter)
@@ -138,7 +138,6 @@ internal static class SqliteIssueFilter
                 (
                     id LIKE $f_term ESCAPE '\'
                     OR notes LIKE $f_term ESCAPE '\'
-                    OR assigned_to LIKE $f_term ESCAPE '\'
                     OR EXISTS (
                         SELECT 1 FROM json_each(issues.context) AS ctx
                         WHERE ctx.value LIKE $f_term ESCAPE '\'
@@ -177,6 +176,16 @@ internal static class SqliteIssueFilter
 
         return column == "id" ? $"id {direction}" : $"{column} {direction}, id ASC";
     }
+
+    /// <summary>A predicate on the issue's holding row, found through its primary key.</summary>
+    private static string HoldingExists(string condition) => $"""
+        EXISTS (
+            SELECT 1 FROM holdings h
+            WHERE h.group_id = issues.group_id
+              AND h.cph = {SqliteIssueStore.CphOfIssue}
+              AND {condition}
+        )
+        """;
 
     private static string EscapeLike(string term)
     {

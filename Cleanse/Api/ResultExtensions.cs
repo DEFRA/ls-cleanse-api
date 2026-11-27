@@ -27,12 +27,19 @@ public static class ResultExtensions
 
         var status = error.Code switch
         {
-            ErrorCodes.IssueNotFound or ErrorCodes.RunNotFound => StatusCodes.Status404NotFound,
+            ErrorCodes.IssueNotFound
+                or ErrorCodes.RunNotFound
+                or ErrorCodes.HoldingNotFound
+                or ErrorCodes.CodedValueNotFound => StatusCodes.Status404NotFound,
 
             ErrorCodes.IssueConcurrencyConflict
+                or ErrorCodes.HoldingConcurrencyConflict
+                or ErrorCodes.CodedValueDuplicateName
                 or ErrorCodes.RunAlreadyInProgress
                 or ErrorCodes.RunNotRunning
                 or ErrorCodes.IssueGroupMismatch => StatusCodes.Status409Conflict,
+
+            ErrorCodes.ActingUserNotAllowed => StatusCodes.Status403Forbidden,
 
             // Not the caller's fault and not permanent: the engine is switched off here.
             ErrorCodes.RulesEngineDisabled => StatusCodes.Status503ServiceUnavailable,
@@ -40,17 +47,26 @@ public static class ResultExtensions
             _ => StatusCodes.Status400BadRequest
         };
 
-        return TypedResults.Problem(new ProblemDetails
+        var problem = new ProblemDetails
         {
             Title = TitleFor(status),
             Detail = error.Message,
             Status = status,
             Extensions = { ["code"] = error.Code }
-        });
+        };
+
+        // Which item failed, where a request names several: the issue that could not move, say.
+        if (error.Subject is not null)
+        {
+            problem.Extensions["subject"] = error.Subject;
+        }
+
+        return TypedResults.Problem(problem);
     }
 
     private static string TitleFor(int status) => status switch
     {
+        StatusCodes.Status403Forbidden => "Forbidden",
         StatusCodes.Status404NotFound => "Not found",
         StatusCodes.Status409Conflict => "Conflict",
         StatusCodes.Status503ServiceUnavailable => "Unavailable",
