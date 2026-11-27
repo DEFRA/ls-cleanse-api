@@ -156,7 +156,9 @@ internal static class DtoMappings
         job.FinishedAtUtc,
         job.FailureReason,
         job.DatasetId,
-        job.Counters.UsersCreated);
+        job.Counters.UsersCreated,
+        // A dataset's job has no file, and keeps that once its dataset is deleted.
+        job.BlobKey is null ? ImportJobDto.DatasetSource : ImportJobDto.FileSource);
 
     /// <summary>Pass the dataset's newest import job, or null when it has never been processed.</summary>
     public static SpolDatasetDto ToDto(this SpolDataset dataset, ImportJob? lastProcessing) => new(

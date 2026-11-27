@@ -75,6 +75,14 @@ public sealed record ImportJobDto(
     DateTimeOffset? FinishedAtUtc,
     string? FailureReason,
     Guid? DatasetId,
-    int UsersCreated);
+    int UsersCreated,
+    string Source)
+{
+    /// <summary>A dataset's job, whose report names items by SharePoint item ID.</summary>
+    public const string DatasetSource = "dataset";
+
+    /// <summary>An earlier upload's job, whose report names rows in the file.</summary>
+    public const string FileSource = "file";
+}
 
 public sealed record ImportRejectionDto(long RowNumber, string? IssueId, string Reason, string Detail);

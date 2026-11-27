@@ -99,6 +99,7 @@ public sealed class SpolDatasetCommandTests : IDisposable
         Assert.Equal("pending", job.Status);
         Assert.Equal("cts-sam", job.GroupId);
         Assert.Equal(id, job.DatasetId);
+        Assert.Equal(ImportJobDto.DatasetSource, job.Source);
         Assert.Equal(3, job.TotalRows);
         Assert.Equal(TestData.Alice.DisplayName, job.RequestedBy);
         var stored = (await _harness.Imports.GetAsync(job.Id))!;
@@ -108,6 +109,10 @@ public sealed class SpolDatasetCommandTests : IDisposable
         Assert.Equal(job.Id, dataset.LastProcessing!.ImportJobId);
         Assert.Equal("pending", dataset.LastProcessing.Status);
     }
+
+    [Fact]
+    public void An_earlier_uploads_job_says_it_came_from_a_file() =>
+        Assert.Equal(ImportJobDto.FileSource, TestData.NewUploadJob().ToDto().Source);
 
     [Fact]
     public async Task A_group_processes_one_dataset_at_a_time()

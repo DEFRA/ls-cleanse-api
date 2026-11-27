@@ -272,6 +272,7 @@ public class ImportEndpointTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal(100, finished.GetProperty("percentComplete").GetInt32());
         Assert.Equal(1, finished.GetProperty("matched").GetInt32());
         Assert.Equal(datasetId, finished.GetProperty("datasetId").GetGuid());
+        Assert.Equal("dataset", finished.GetProperty("source").GetString());
 
         var issue = await (await client.GetAsync($"/v1/issues/{Uri.EscapeDataString(issueId)}")).ReadJsonAsync();
         Assert.Equal("resolved", issue.GetProperty("workflowStatus").GetString());
