@@ -64,3 +64,16 @@ public sealed class InMemorySettingsStoreTests : SettingsStoreContractTests
 
     protected override ISettingsStore CreateStore() => _store;
 }
+
+public sealed class InMemorySpolDatasetStoreTests : SpolDatasetStoreContractTests
+{
+    private readonly InMemorySpolDatasetStore _store = new();
+    private readonly InMemoryImportJobStore _imports = new();
+
+    protected override ISpolDatasetStore CreateStore() => _store;
+
+    protected override IImportJobStore CreateImportJobStore() => _imports;
+
+    /// <summary>There is no foreign key, so a job keeps the id of a dataset that has gone.</summary>
+    protected override bool DeletingADatasetUnlinksItsJobs => false;
+}

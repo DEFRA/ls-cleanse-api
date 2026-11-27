@@ -1,32 +1,24 @@
-using System.Security.Claims;
-using Cleanse.Api.Imports;
 using Cleanse.Core.Abstractions;
-using Cleanse.Core.Commands.Imports;
 using Cleanse.Core.Contracts;
 using Cleanse.Core.Queries.Imports;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Cleanse.Api.V1;
 
+/// <summary>
+/// Import jobs: each processing run of a SPOL dataset, and the file uploads that came before them.
+/// A job is started from its dataset, at POST /v1/datasets/{id}/process.
+/// </summary>
 public static class ImportEndpoints
 {
     public static RouteGroupBuilder MapImportEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/imports").WithTags("Imports");
 
-        group.MapPost(string.Empty, Upload)
-            .WithName("UploadImport")
-            .WithSummary("Upload an external extract for a group.")
-            .WithDescription("Assigned to is matched by email address first, then by unique full name; an email address nobody has becomes a new user. Names that match no single user stay as text, with a non-fatal warning in the reconciliation report. Assignments changed in Cleanse are left alone. The optional tenantId and clientId fields are accepted for compatibility and no longer affect matching.")
-            .Produces<ImportJobDto>(StatusCodes.Status202Accepted)
-            .ProducesProblem(StatusCodes.Status400BadRequest)
-            .ProducesProblem(StatusCodes.Status409Conflict)
-            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
-            .DisableAntiforgery();
-
         group.MapGet(string.Empty, Search)
             .WithName("SearchImports")
             .WithSummary("List imports, newest first.")
+            .WithDescription("groupId and datasetId narrow the list to one group's or one dataset's imports.")
             .Produces<PagedResult<ImportJobDto>>();
         group.MapGet("/{id:guid}", Get)
             .WithName("GetImport")
@@ -35,78 +27,12 @@ public static class ImportEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound);
         group.MapGet("/{id:guid}/rejections", GetRejections)
             .WithName("GetImportRejections")
-            .WithSummary("Rejected rows and non-fatal assignment warnings.")
+            .WithSummary("Rejected items and non-fatal warnings.")
+            .WithDescription("rowNumber is the SharePoint item ID for a dataset's import, and the row in the file for an earlier upload.")
             .Produces<PagedResult<ImportRejectionDto>>()
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return group;
-    }
-
-    private static async Task<IResult> Upload(
-        IFormFile file,
-        [FromForm] string groupId,
-        [FromForm] string? tenantId,
-        [FromForm] string? clientId,
-        ClaimsPrincipal user,
-        ICleanseDispatcher dispatcher,
-        IImportFileStore files,
-        ImportOptions options,
-        CancellationToken cancellationToken)
-    {
-        if (file is null || file.Length == 0)
-        {
-            return Problem("No file was supplied.", StatusCodes.Status400BadRequest);
-        }
-
-        if (string.IsNullOrWhiteSpace(groupId))
-        {
-            return Problem("A groupId is required.", StatusCodes.Status400BadRequest);
-        }
-
-        if ((tenantId is null) != (clientId is null) ||
-            (tenantId is not null &&
-             (!Guid.TryParse(tenantId, out var tenant) || tenant == Guid.Empty ||
-              !Guid.TryParse(clientId, out var client) || client == Guid.Empty)))
-        {
-            return Problem("tenantId and clientId must both be nonempty GUIDs, or both omitted.", 400);
-        }
-
-        if (file.Length > options.MaxUploadBytes)
-        {
-            return Problem(
-                $"The file is {file.Length} bytes; the limit is {options.MaxUploadBytes}.",
-                StatusCodes.Status413PayloadTooLarge);
-        }
-
-        // Validated before anything is persisted, so a renamed binary never reaches the store.
-        await using (var probe = file.OpenReadStream())
-        {
-            if (!SpolCsvReader.TryValidateHeader(probe, out var headerError))
-            {
-                return Problem(headerError!, StatusCodes.Status400BadRequest);
-            }
-        }
-
-        int totalRows;
-        await using (var counting = file.OpenReadStream())
-        {
-            totalRows = SpolCsvReader.Read(counting, groupId).Count();
-        }
-
-        var jobId = Guid.CreateVersion7();
-        var blobKey = $"imports/{groupId.Trim()}/{jobId}.csv";
-
-        await using (var content = file.OpenReadStream())
-        {
-            await files.WriteAsync(blobKey, content, cancellationToken);
-        }
-
-        var result = await dispatcher.SendAsync(
-            new CreateImportJobCommand(
-                jobId, groupId, file.FileName, blobKey, totalRows, user.ToActor(), tenantId, clientId),
-            cancellationToken);
-
-        return result.ToHttpResult(job => TypedResults.Accepted($"/v1/imports/{job.Id}", job));
     }
 
     private static async Task<IResult> Get(
@@ -120,12 +46,13 @@ public static class ImportEndpoints
 
     private static async Task<IResult> Search(
         [FromQuery(Name = "groupId")] string? groupId,
+        [FromQuery(Name = "datasetId")] Guid? datasetId,
         [AsParameters] PageParameters page,
         ICleanseDispatcher dispatcher,
         CancellationToken cancellationToken)
     {
         var result = await dispatcher.QueryAsync(
-            new SearchImportJobsQuery(groupId, page.ToPageRequest()), cancellationToken);
+            new SearchImportJobsQuery(groupId, page.ToPageRequest(), datasetId), cancellationToken);
         return result.ToHttpResult();
     }
 
@@ -139,7 +66,4 @@ public static class ImportEndpoints
             new GetImportRejectionsQuery(id, page.ToPageRequest()), cancellationToken);
         return result.ToHttpResult();
     }
-
-    private static IResult Problem(string detail, int status) =>
-        TypedResults.Problem(title: "Invalid request", detail: detail, statusCode: status);
 }

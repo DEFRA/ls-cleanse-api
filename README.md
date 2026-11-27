@@ -155,6 +155,40 @@ Only the front-end may change the lists; it decides who is an admin.
 
 Only the front-end may change the settings, and a reset keeps them.
 
+### SPOL datasets and imports
+
+SPOL's triage state and assignees arrive through datasets. An admin creates a dataset, and
+ls-cleanse-spol-connector loads the exported list into it a page at a time, through the front-end,
+with the dataset's key. Processing a Ready dataset starts an import job, which applies its rows in
+the background.
+
+| Method   | Route                           | Purpose                                                                                                   |
+| -------- | ------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `POST`   | `/v1/datasets`                  | Create an Empty dataset. The response is the only place its key appears.                                  |
+| `GET`    | `/v1/datasets`                  | Datasets, newest first, with their status, row count and last processing.                                 |
+| `GET`    | `/v1/datasets/{id}`             | One dataset. With `x-dataset-key`, an unknown dataset and a wrong key both get `401`.                     |
+| `POST`   | `/v1/datasets/{id}`             | Store one page of a load, with `x-dataset-key`. See below.                                                |
+| `PUT`    | `/v1/datasets/{id}/name`        | Rename it, at the `expectedVersion` that was read.                                                        |
+| `DELETE` | `/v1/datasets/{id}`             | Delete it with its rows. Its import jobs and their reports stay. `409` while it is being processed.       |
+| `POST`   | `/v1/datasets/{id}/process`     | Start an import job for a group. `409` unless the dataset is Ready, or while the group has an import running. |
+| `GET`    | `/v1/imports`                   | Import jobs, newest first. Filter by `groupId` or `datasetId`.                                            |
+| `GET`    | `/v1/imports/{id}`              | A job's status, progress and counts, including the users it added.                                        |
+| `GET`    | `/v1/imports/{id}/rejections`   | Its report: items with no matching issue or no usable key, and warnings, by SharePoint item ID.           |
+
+A page is `{ "loadId", "page", "pageCount", "totalRows", "rows" }`, each row one list item with all
+48 columns, as the connector writes them. The first page of a new `loadId` replaces the dataset's
+rows, and pages from an older load are then refused with `409`. Rows are stored by `itemId`, so a
+page sent twice changes nothing, and the dataset is Ready once its rows reach `totalRows`. A page
+holds 1 to 500 rows and a dataset up to 200,000. An unknown property, a date without an offset or a
+value over 64,000 characters refuses the whole page with a `400` that names the item and property.
+Nothing can be loaded while the dataset is being processed.
+
+Processing first adds everyone in Assigned to who has an email address and is not yet a user, named
+as SharePoint names them, then applies the rows as the file upload did: workflow status, SPOL notes,
+priority, date received, contact dates as history, and the holding's assignee, matched by email and
+then by name. Only the front-end may call these endpoints. Datasets hold keepers' contact details,
+so delete one once it has been processed. A reset keeps datasets, and deletes their import jobs.
+
 ### Runs and rules
 
 | Method | Route                           | Purpose                                                                                        |

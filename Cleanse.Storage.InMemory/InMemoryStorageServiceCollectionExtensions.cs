@@ -24,6 +24,7 @@ public static class InMemoryStorageServiceCollectionExtensions
         services.TryAddSingleton<InMemoryRuleRunStore>();
         services.TryAddSingleton<InMemoryImportJobStore>();
         services.TryAddSingleton<InMemoryImportFileStore>();
+        services.TryAddSingleton<InMemorySpolDatasetStore>();
         services.TryAddSingleton<InMemoryDataResetStore>();
         services.TryAddSingleton<IUserStore, InMemoryUserStore>();
 
@@ -37,6 +38,7 @@ public static class InMemoryStorageServiceCollectionExtensions
         services.TryAddSingleton<IRuleRunStore>(sp => sp.GetRequiredService<InMemoryRuleRunStore>());
         services.TryAddSingleton<IImportJobStore>(sp => sp.GetRequiredService<InMemoryImportJobStore>());
         services.TryAddSingleton<IImportFileStore>(sp => sp.GetRequiredService<InMemoryImportFileStore>());
+        services.TryAddSingleton<ISpolDatasetStore>(sp => sp.GetRequiredService<InMemorySpolDatasetStore>());
         services.TryAddSingleton<IDataResetStore>(sp => sp.GetRequiredService<InMemoryDataResetStore>());
         services.TryAddSingleton<IStorageDiagnostics, InMemoryStorageDiagnostics>();
 

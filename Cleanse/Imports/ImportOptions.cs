@@ -10,9 +10,6 @@ public sealed class ImportOptions
     /// <summary>Rows applied per command. Keeps a single transaction small on any provider.</summary>
     public int BatchSize { get; set; } = 500;
 
-    /// <summary>Generous: the file is 8 MB today, and rejecting at the edge beats a partial read.</summary>
-    public long MaxUploadBytes { get; set; } = 50 * 1024 * 1024;
-
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
@@ -27,7 +24,6 @@ public sealed class ImportOptions
     internal void Validate()
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(BatchSize, 1, nameof(BatchSize));
-        ArgumentOutOfRangeException.ThrowIfLessThan(MaxUploadBytes, 1024, nameof(MaxUploadBytes));
         ArgumentOutOfRangeException.ThrowIfLessThan(MaxRejectionsRecorded, 0, nameof(MaxRejectionsRecorded));
 
         if (StaleAfter <= TimeSpan.Zero)

@@ -9,6 +9,8 @@ namespace Cleanse.Core.Commands.Imports;
 /// <summary>
 /// Applies one chunk of an external extract. Rows with no matching issue are recorded for the
 /// reconciliation report rather than creating anything: the rules engine owns issue creation.
+/// Assignees are matched by email address, then by unique name, against the users there are;
+/// <see cref="RegisterImportAssigneesCommand"/> adds the newcomers before the first chunk.
 /// </summary>
 public sealed record ApplyImportBatchCommand(
     Guid ImportJobId,
@@ -86,36 +88,6 @@ internal sealed class ApplyImportBatchCommandHandler(
                 .ToDictionary(holding => holding.Key);
         var loadedVersions = holdingKeys.ToDictionary(key => key, key => stored.GetValueOrDefault(key)?.Version ?? 0);
         var touched = new Dictionary<HoldingKey, Holding>();
-
-        // An address nobody has yet becomes a user, so the holding can be theirs before they sign in.
-        var newcomers = rows
-            .Where(row => HoldingOf(row) is { } key &&
-                          stored.GetValueOrDefault(key)?.AssignmentDetachedAtUtc is null)
-            .Select(row => (Typed: row.AssignedTo?.Trim(),
-                Email: EmailAddress.TryNormalise(row.AssignedTo, out var email) ? email : null))
-            .Where(entry => entry.Email is not null && !byEmail.ContainsKey(entry.Email))
-            .GroupBy(entry => entry.Email!, StringComparer.Ordinal)
-            .Select(group => KnownUser.Unclaimed(group.Key, UserNames.FromEmail(group.First().Typed!)))
-            .ToList();
-
-        if (newcomers.Count > 0)
-        {
-            foreach (var registration in await users.RegisterAsync(newcomers, cancellationToken))
-            {
-                byEmail[registration.User.Email!] = registration.User;
-                var key = NameKey(registration.User.FullName);
-                if (!byName.TryGetValue(key, out var named))
-                {
-                    byName[key] = named = [];
-                }
-
-                if (!named.Exists(user => user.Id == registration.User.Id))
-                {
-                    named.Add(registration.User);
-                }
-            }
-        }
-
         var matched = 0;
 
         foreach (var row in rows)
@@ -146,19 +118,22 @@ internal sealed class ApplyImportBatchCommandHandler(
                 : null;
             if (assignedHolding is { } holdingKey && current?.AssignmentDetachedAtUtc is null)
             {
-                var assignee = string.IsNullOrWhiteSpace(row.AssignedTo) ? null : row.AssignedTo.Trim();
+                // Kept as text when no single user matches: the name SPOL gives, or else the address.
+                var named = string.IsNullOrWhiteSpace(row.AssignedTo) ? null : row.AssignedTo.Trim();
+                var address = string.IsNullOrWhiteSpace(row.AssignedEmail) ? null : row.AssignedEmail.Trim();
+                var assignee = named ?? address;
                 KnownUser? user = null;
                 string? warning = null;
-                if (EmailAddress.TryNormalise(assignee, out var email))
+                if (EmailAddress.TryNormalise(address ?? named, out var email))
                 {
                     if (!byEmail.TryGetValue(email, out user))
                     {
                         warning = ImportRejectionReasons.AssigneeUnmatched;
                     }
                 }
-                else if (assignee is not null)
+                else if (named is not null)
                 {
-                    byName.TryGetValue(NameKey(assignee), out var candidates);
+                    byName.TryGetValue(NameKey(named), out var candidates);
                     if (candidates is { Count: 1 })
                     {
                         user = candidates[0];

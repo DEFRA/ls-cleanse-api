@@ -16,6 +16,9 @@ public interface IImportJobStore
 
     Task<ImportJob?> GetActiveForGroupAsync(string groupId, CancellationToken cancellationToken = default);
 
+    /// <summary>Whether the dataset has a pending or processing job.</summary>
+    Task<bool> HasActiveForDatasetAsync(Guid datasetId, CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Atomically moves one pending job to processing and returns it. Returns null when there is
     /// nothing to do, so several workers can poll without duplicating work.
@@ -28,9 +31,11 @@ public interface IImportJobStore
         int limit,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Newest first, of the group's or the dataset's jobs when either is given.</summary>
     Task<PagedResult<ImportJob>> SearchAsync(
         string? groupId,
         PageRequest page,
+        Guid? datasetId = null,
         CancellationToken cancellationToken = default);
 
     Task AddRejectionsAsync(

@@ -408,7 +408,6 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .HasColumnName("id");
 
                     b.Property<string>("BlobKey")
-                        .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("blob_key");
 
@@ -419,6 +418,10 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at_utc");
+
+                    b.Property<Guid?>("DatasetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("dataset_id");
 
                     b.Property<int>("DuplicatesCollapsed")
                         .HasColumnType("integer")
@@ -484,6 +487,10 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("unmatched");
 
+                    b.Property<int>("UsersCreated")
+                        .HasColumnType("integer")
+                        .HasColumnName("users_created");
+
                     b.Property<int>("Version")
                         .HasColumnType("integer")
                         .HasColumnName("version");
@@ -493,6 +500,10 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                     b.HasIndex("CreatedAtUtc")
                         .HasDatabaseName("ix_import_jobs_pending")
                         .HasFilter("status = 'Pending'");
+
+                    b.HasIndex("DatasetId")
+                        .HasDatabaseName("ix_import_jobs_dataset")
+                        .HasFilter("dataset_id IS NOT NULL");
 
                     b.HasIndex("GroupId")
                         .IsUnique()
@@ -835,6 +846,108 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.SpolDatasetItemRow", b =>
+                {
+                    b.Property<Guid>("DatasetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("dataset_id");
+
+                    b.Property<int>("ItemId")
+                        .HasColumnType("integer")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("Data")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("data");
+
+                    b.HasKey("DatasetId", "ItemId");
+
+                    b.ToTable("spol_dataset_items", (string)null);
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.SpolDatasetRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("CreatedById")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<string>("CreatedByName")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("created_by_name");
+
+                    b.Property<Guid?>("CurrentLoadId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("current_load_id");
+
+                    b.Property<int?>("ExpectedRows")
+                        .HasColumnType("integer")
+                        .HasColumnName("expected_rows");
+
+                    b.Property<string>("KeyHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("key_hash");
+
+                    b.Property<DateTimeOffset?>("LastLoadedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_loaded_at_utc");
+
+                    b.Property<DateTimeOffset?>("LoadStartedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("load_started_at_utc");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<int?>("PageCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("page_count");
+
+                    b.Property<int>("RowCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("row_count");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<int>("Version")
+                        .HasColumnType("integer")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAtUtc", "Id")
+                        .IsDescending()
+                        .HasDatabaseName("ix_spol_datasets_created");
+
+                    b.ToTable("spol_datasets", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_spol_datasets_status", "status IN ('Empty', 'Loading', 'Ready')");
+                        });
+                });
+
             modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.UserRow", b =>
                 {
                     b.Property<Guid>("Id")
@@ -930,6 +1043,15 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .HasConstraintName("fk_import_job_rejections_job");
                 });
 
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.ImportJobRow", b =>
+                {
+                    b.HasOne("Cleanse.Storage.Postgres.Schema.SpolDatasetRow", null)
+                        .WithMany()
+                        .HasForeignKey("DatasetId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_import_jobs_dataset");
+                });
+
             modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.IssueHistoryRow", b =>
                 {
                     b.HasOne("Cleanse.Storage.Postgres.Schema.IssueRow", null)
@@ -952,6 +1074,16 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         .HasForeignKey("OutcomeReasonId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_issues_outcome_reason");
+                });
+
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.SpolDatasetItemRow", b =>
+                {
+                    b.HasOne("Cleanse.Storage.Postgres.Schema.SpolDatasetRow", null)
+                        .WithMany()
+                        .HasForeignKey("DatasetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_spol_dataset_items_dataset");
                 });
 #pragma warning restore 612, 618
         }

@@ -39,6 +39,14 @@ public static class ErrorCodes
     public const string ImportAlreadyFinished = "import.already_finished";
     public const string ImportFileInvalid = "import.file_invalid";
 
+    public const string DatasetNotFound = "dataset.not_found";
+    public const string DatasetUnauthorised = "dataset.unauthorised";
+    public const string DatasetConcurrencyConflict = "dataset.concurrency_conflict";
+    public const string DatasetLoadSuperseded = "dataset.load_superseded";
+    public const string DatasetProcessing = "dataset.processing";
+    public const string DatasetNotReady = "dataset.not_ready";
+    public const string DatasetTooLarge = "dataset.too_large";
+
     public const string ValidationFailed = "validation.failed";
 }
 
@@ -121,4 +129,29 @@ public static class DomainErrors
 
     public static DomainError ImportFileInvalid(string message) =>
         new(ErrorCodes.ImportFileInvalid, message);
+
+    public static DomainError DatasetNotFound(Guid id) =>
+        new(ErrorCodes.DatasetNotFound, $"Dataset '{id}' was not found.");
+
+    /// <summary>The same for an unknown dataset as for a wrong key, so neither gives the other away.</summary>
+    public static DomainError DatasetUnauthorised() =>
+        new(ErrorCodes.DatasetUnauthorised, "The dataset id or key is not valid.");
+
+    public static DomainError DatasetConcurrencyConflict(Guid id) =>
+        new(ErrorCodes.DatasetConcurrencyConflict,
+            $"Dataset '{id}' has changed since it was read. Reload it and try again.");
+
+    public static DomainError DatasetLoadSuperseded(Guid id) =>
+        new(ErrorCodes.DatasetLoadSuperseded,
+            $"Dataset '{id}' has started a newer load, so this load's pages are refused. Run the connector again.");
+
+    public static DomainError DatasetProcessing(Guid id) =>
+        new(ErrorCodes.DatasetProcessing, $"Dataset '{id}' is being processed. Try again once it has finished.");
+
+    public static DomainError DatasetNotReady(Guid id, string status) =>
+        new(ErrorCodes.DatasetNotReady,
+            $"Dataset '{id}' is {status}. Only a Ready dataset, with all of its last load's rows, can be processed.");
+
+    public static DomainError DatasetTooLarge(string message) =>
+        new(ErrorCodes.DatasetTooLarge, message);
 }

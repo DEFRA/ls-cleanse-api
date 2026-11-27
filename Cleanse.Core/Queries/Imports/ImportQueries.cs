@@ -19,7 +19,7 @@ internal sealed class GetImportJobQueryHandler(IImportJobStore imports)
     }
 }
 
-public sealed record SearchImportJobsQuery(string? GroupId = null, PageRequest? Page = null)
+public sealed record SearchImportJobsQuery(string? GroupId = null, PageRequest? Page = null, Guid? DatasetId = null)
     : IQuery<PagedResult<ImportJobDto>>;
 
 internal sealed class SearchImportJobsQueryHandler(IImportJobStore imports)
@@ -31,7 +31,7 @@ internal sealed class SearchImportJobsQueryHandler(IImportJobStore imports)
     {
         ArgumentNullException.ThrowIfNull(query);
         var page = await imports.SearchAsync(
-            query.GroupId, query.Page ?? PageRequest.Default, cancellationToken);
+            query.GroupId, query.Page ?? PageRequest.Default, query.DatasetId, cancellationToken);
         return page.Map(job => job.ToDto());
     }
 }

@@ -267,7 +267,11 @@ internal sealed class ImportJobRow
 
     public required string FileName { get; set; }
 
-    public required string BlobKey { get; set; }
+    public string? BlobKey { get; set; }
+
+    public Guid? DatasetId { get; set; }
+
+    public int UsersCreated { get; set; }
 
     public required string Status { get; set; }
 
@@ -311,4 +315,46 @@ internal sealed class ImportJobRejectionRow
     public required string Reason { get; set; }
 
     public required string Detail { get; set; }
+}
+
+internal sealed class SpolDatasetRow
+{
+    public Guid Id { get; set; }
+
+    public required string Name { get; set; }
+
+    public required string KeyHash { get; set; }
+
+    public required string Status { get; set; }
+
+    public int RowCount { get; set; }
+
+    public int? ExpectedRows { get; set; }
+
+    public int? PageCount { get; set; }
+
+    public Guid? CurrentLoadId { get; set; }
+
+    public DateTimeOffset? LoadStartedAtUtc { get; set; }
+
+    public DateTimeOffset? LastLoadedAtUtc { get; set; }
+
+    public required string CreatedById { get; set; }
+
+    public required string CreatedByName { get; set; }
+
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+
+    public int Version { get; set; }
+}
+
+internal sealed class SpolDatasetItemRow
+{
+    public Guid DatasetId { get; set; }
+
+    public int ItemId { get; set; }
+
+    public required string Data { get; set; }
 }

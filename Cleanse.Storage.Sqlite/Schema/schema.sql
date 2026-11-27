@@ -119,6 +119,39 @@ CREATE TABLE IF NOT EXISTS issue_history (
 CREATE INDEX IF NOT EXISTS ix_issue_history_issue
     ON issue_history (issue_id, created_at_utc DESC, sequence DESC);
 
+-- SPOL datasets: what the connector loads for an admin to process. A reset keeps them, as it does
+-- users. Only the key's SHA-256 is kept.
+CREATE TABLE IF NOT EXISTS spol_datasets (
+    id                    TEXT    NOT NULL PRIMARY KEY,
+    name                  TEXT    NOT NULL,
+    key_hash              TEXT    NOT NULL,
+    status                TEXT    NOT NULL CHECK (status IN ('Empty', 'Loading', 'Ready')),
+    row_count             INTEGER NOT NULL DEFAULT 0,
+    expected_rows         INTEGER     NULL,
+    page_count            INTEGER     NULL,
+    current_load_id       TEXT        NULL,
+    load_started_at_utc   TEXT        NULL,
+    last_loaded_at_utc    TEXT        NULL,
+    created_by_id         TEXT    NOT NULL,
+    created_by_name       TEXT    NOT NULL,
+    created_at_utc        TEXT    NOT NULL,
+    updated_at_utc        TEXT    NOT NULL,
+    version               INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_spol_datasets_created ON spol_datasets (created_at_utc DESC, id DESC);
+
+-- One SharePoint list item per row, as the connector sent it.
+CREATE TABLE IF NOT EXISTS spol_dataset_items (
+    dataset_id  TEXT    NOT NULL REFERENCES spol_datasets (id) ON DELETE CASCADE,
+    item_id     INTEGER NOT NULL,
+    data        TEXT    NOT NULL,
+    PRIMARY KEY (dataset_id, item_id)
+);
+
+-- blob_key is the file an earlier upload kept. SQLite cannot relax NOT NULL in place, so a dataset's
+-- job stores an empty one. dataset_id and users_created are added to an older table by
+-- CleanseSqliteDatabase, which also indexes dataset_id.
 CREATE TABLE IF NOT EXISTS import_jobs (
     tenant_id              TEXT NULL,
     client_id              TEXT NULL,
@@ -139,7 +172,9 @@ CREATE TABLE IF NOT EXISTS import_jobs (
     finished_at_utc        TEXT        NULL,
     heartbeat_at_utc       TEXT        NULL,
     failure_reason         TEXT        NULL,
-    version                INTEGER NOT NULL
+    version                INTEGER NOT NULL,
+    dataset_id             TEXT        NULL REFERENCES spol_datasets (id) ON DELETE SET NULL,
+    users_created          INTEGER NOT NULL DEFAULT 0
 );
 
 -- Matches the Postgres guarantee: a double-click cannot start two workers on one group.

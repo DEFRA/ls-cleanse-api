@@ -29,8 +29,8 @@ public sealed class ImportAssignmentTests
 
     private static async Task<ImportJob> JobAsync(IImportJobStore imports)
     {
-        var job = ImportJob.Create(Guid.NewGuid(), TestData.Group, "extract.csv", "imports/extract.csv",
-            "service", 1, TestData.Night1, Tenant, Client);
+        var job = ImportJob.Create(Guid.NewGuid(), TestData.Group, "SPOL export", Guid.NewGuid(),
+            "service", 1, TestData.Night1);
         Assert.True(await imports.TryCreateAsync(job));
         return (await imports.LeaseNextPendingAsync(TestData.Night1))!;
     }
@@ -158,9 +158,10 @@ public sealed class ImportAssignmentTests
     }
 
     [Fact]
-    public async Task An_email_nobody_has_becomes_a_user_who_has_not_signed_in()
+    public async Task Assignees_nobody_has_become_users_named_as_SharePoint_names_them()
     {
         var users = new InMemoryUserStore();
+        await users.RegisterAsync([KnownUser.Unclaimed("kept.name@defra.gov.uk", "Kept Name")]);
         var imports = new InMemoryImportJobStore();
         var issues = new InMemoryIssueStore();
         var holdings = new InMemoryHoldingStore();
@@ -168,17 +169,63 @@ public sealed class ImportAssignmentTests
         var second = TestData.NewIssue("new-user-2");
         await issues.SaveBatchAsync([first, second]);
         var job = await JobAsync(imports);
+        var register = new RegisterImportAssigneesCommandHandler(imports, users, TimeProvider.System);
+        var command = new RegisterImportAssigneesCommand(job.Id,
+        [
+            new ExternalAssignee("StJohn.Hawkins1@defra.gov.uk", "St John \u00a0Hawkins"),
+            new ExternalAssignee("stjohn.hawkins1@defra.gov.uk", "Another Spelling"),
+            new ExternalAssignee("Kept.Name@defra.gov.uk", "Renamed In SharePoint"),
+            new ExternalAssignee("no.name@defra.gov.uk", null),
+            new ExternalAssignee(null, "Name Only"),
+            new ExternalAssignee("not an email", "Broken")
+        ]);
+
+        Assert.Equal(2, (await register.HandleAsync(command)).Value);
+
+        Assert.Equal(2, (await imports.GetAsync(job.Id))!.Counters.UsersCreated);
+        var all = (await users.SearchAsync(PageRequest.Default)).Items;
+        Assert.Equal(3, all.Count);
+        var stJohn = Assert.Single(all, user => user.Email == "stjohn.hawkins1@defra.gov.uk");
+        Assert.Equal("St John Hawkins", stJohn.FullName);
+        Assert.Null(stJohn.Subject);
+        Assert.Equal("Kept Name", Assert.Single(all, user => user.Email == "kept.name@defra.gov.uk").FullName);
+        Assert.Equal("No Name", Assert.Single(all, user => user.Email == "no.name@defra.gov.uk").FullName);
+
+        // The batch then gives each holding to its person, by email address.
+        Assert.True((await Handler(imports, issues, users, holdings).HandleAsync(new ApplyImportBatchCommand(job.Id,
+        [
+            Row(first, "St John Hawkins") with { AssignedEmail = "STJOHN.HAWKINS1@defra.gov.uk" },
+            Row(second, "Someone Else's Spelling") with { RowNumber = 3, AssignedEmail = "stjohn.hawkins1@defra.gov.uk" }
+        ], Actor.System))).IsSuccess);
+        Assert.Equal(stJohn.Id, (await holdings.GetAsync(KeyOf(first)))!.AssignedUserId);
+        Assert.Equal(stJohn.Id, (await holdings.GetAsync(KeyOf(second)))!.AssignedUserId);
+        Assert.Equal("St John Hawkins", (await holdings.GetAsync(KeyOf(second)))!.AssignedTo);
+
+        // Known now, so a second run adds nobody.
+        Assert.Equal(0, (await register.HandleAsync(command)).Value);
+        Assert.Equal(2, (await imports.GetAsync(job.Id))!.Counters.UsersCreated);
+    }
+
+    [Fact]
+    public async Task An_email_address_nobody_has_is_kept_as_text_with_a_warning()
+    {
+        var users = new InMemoryUserStore();
+        var imports = new InMemoryImportJobStore();
+        var issues = new InMemoryIssueStore();
+        var holdings = new InMemoryHoldingStore();
+        var issue = TestData.NewIssue("unregistered");
+        await issues.SaveAsync(issue, null);
+        var job = await JobAsync(imports);
 
         Assert.True((await Handler(imports, issues, users, holdings).HandleAsync(new ApplyImportBatchCommand(job.Id,
-            [Row(first, "StJohn.Hawkins1@defra.gov.uk"), Row(second, "stjohn.hawkins1@defra.gov.uk") with { RowNumber = 3 }],
-            Actor.System))).IsSuccess);
+            [Row(issue, "Unknown Person") with { AssignedEmail = "unknown.person@defra.gov.uk" }], Actor.System))).IsSuccess);
 
-        var created = Assert.Single((await users.SearchAsync(PageRequest.Default)).Items);
-        Assert.Equal("StJohn Hawkins", created.FullName);
-        Assert.Equal("stjohn.hawkins1@defra.gov.uk", created.Email);
-        Assert.Null(created.Subject);
-        Assert.Equal(created.Id, (await holdings.GetAsync(KeyOf(first)))!.AssignedUserId);
-        Assert.Equal(created.Id, (await holdings.GetAsync(KeyOf(second)))!.AssignedUserId);
+        var holding = (await holdings.GetAsync(KeyOf(issue)))!;
+        Assert.Null(holding.AssignedUserId);
+        Assert.Equal("Unknown Person", holding.AssignedTo);
+        Assert.Empty((await users.SearchAsync(PageRequest.Default)).Items);
+        Assert.Equal(ImportRejectionReasons.AssigneeUnmatched,
+            Assert.Single((await imports.GetRejectionsAsync(job.Id, PageRequest.Default)).Items).Reason);
     }
 
     [Fact]

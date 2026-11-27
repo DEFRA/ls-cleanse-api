@@ -182,6 +182,7 @@ static void ConfigureEndpoints(WebApplication app)
     v1.MapRuleEndpoints();
     v1.MapGroupEndpoints();
     v1.MapImportEndpoints();
+    v1.MapDatasetEndpoints();
     v1.MapMaintenanceEndpoints();
     v1.MapDiagnosticsEndpoints();
 }

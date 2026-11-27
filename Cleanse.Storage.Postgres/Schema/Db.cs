@@ -18,6 +18,8 @@ internal static class Db
     public const string HoldingActions = "holding_actions";
     public const string CodedValues = "coded_values";
     public const string ServiceSettings = "service_settings";
+    public const string SpolDatasets = "spol_datasets";
+    public const string SpolDatasetItems = "spol_dataset_items";
 
     public static class Issue
     {

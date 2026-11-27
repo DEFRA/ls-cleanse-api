@@ -84,8 +84,8 @@ public static class SpolRowMapper
             var winner = AssigneeOf(holding);
             carriers.Add(winner.RowNumber);
 
-            var named = holding.Where(row => !string.IsNullOrWhiteSpace(row.AssignedTo)).ToList();
-            if (named.Select(row => NameKey(row.AssignedTo)).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
+            var named = holding.Where(row => row.AssigneeKey is not null).ToList();
+            if (named.Select(row => row.AssigneeKey).Distinct(StringComparer.Ordinal).Count() > 1)
             {
                 conflicts.Add(new AssigneeConflict(winner, [.. named.Select(row => row.RowNumber).Order()]));
             }
@@ -101,6 +101,7 @@ public static class SpolRowMapper
                 // Assignment belongs to the holding, so only one row per CPH carries it.
                 HasAssignee = row.HasAssignee && carriers.Contains(row.RowNumber),
                 AssignedTo = row.AssignedTo,
+                AssignedEmail = row.AssignedEmail,
                 Priority = MapPriority(row.Priority),
                 ReceivedAtUtc = row.DateReceived,
                 Contacts = row.Contacts
@@ -108,21 +109,23 @@ public static class SpolRowMapper
             .ToList();
 
         return new SpolBatch(
-            projected, invalid, collapsed, FindSuspectDates(byKey.Values), [.. conflicts.OrderBy(c => c.Row.RowNumber)]);
+            projected,
+            invalid,
+            collapsed,
+            FindSuspectDates(byKey.Values),
+            [.. conflicts.OrderBy(c => c.Row.RowNumber)],
+            [.. byKey.Values.Where(row => row.Assignees.Count > 1).OrderBy(row => row.RowNumber)]);
     }
 
     /// <summary>
-    /// The row whose assignee the holding takes. A name beats a blank, then a New or In progress
-    /// row beats a closed one, then the last row in the file wins.
+    /// The row whose assignee the holding takes. Someone named beats nobody, then a New or In
+    /// progress row beats a closed one, then the highest item ID wins.
     /// </summary>
     private static SpolRow AssigneeOf(IEnumerable<SpolRow> rows) => rows
-        .OrderByDescending(row => !string.IsNullOrWhiteSpace(row.AssignedTo))
+        .OrderByDescending(row => row.AssigneeKey is not null)
         .ThenByDescending(row => MapStatus(row.Status) is WorkflowStatus.Todo or WorkflowStatus.InProgress)
         .ThenByDescending(row => row.RowNumber)
         .First();
-
-    private static string NameKey(string? name) =>
-        string.Join(' ', (name ?? string.Empty).Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     /// <summary>How far behind the newest received date a row may be before it is called out.</summary>
     private static readonly TimeSpan MaxReceivedAge = TimeSpan.FromDays(3 * 365);
@@ -146,11 +149,11 @@ public static class SpolRowMapper
 
             if (row.DateComplete is { } complete && complete < received)
             {
-                suspects.Add(new SuspectDate(row, $"Date Complete {SpolCsvReader.UkDay(complete)} is before Date Received {SpolCsvReader.UkDay(received)}."));
+                suspects.Add(new SuspectDate(row, $"Date Complete {UkTime.Day(complete)} is before Date Received {UkTime.Day(received)}."));
             }
             else if (newest is { } latest && latest - received > MaxReceivedAge)
             {
-                suspects.Add(new SuspectDate(row, $"Date Received {SpolCsvReader.UkDay(received)} is over 3 years older than the newest row."));
+                suspects.Add(new SuspectDate(row, $"Date Received {UkTime.Day(received)} is over 3 years older than the newest item's."));
             }
         }
 
@@ -171,7 +174,7 @@ public static class SpolRowMapper
             return byCompletion > 0;
         }
 
-        // Last tie-break is file order, so the outcome never depends on dictionary ordering.
+        // Last tie-break is the item ID, so the outcome never depends on dictionary ordering.
         return candidate.RowNumber > incumbent.RowNumber;
     }
 }
@@ -181,9 +184,10 @@ public sealed record SpolBatch(
     IReadOnlyList<SpolRow> Invalid,
     int DuplicatesCollapsed,
     IReadOnlyList<SuspectDate> SuspectDates,
-    IReadOnlyList<AssigneeConflict> AssigneeConflicts);
+    IReadOnlyList<AssigneeConflict> AssigneeConflicts,
+    IReadOnlyList<SpolRow> SeveralAssignees);
 
 public sealed record SuspectDate(SpolRow Row, string Detail);
 
-/// <summary>A CPH whose rows name different people. <see cref="Row"/> is the one whose assignee was used.</summary>
+/// <summary>A CPH whose items name different people. <see cref="Row"/> is the one whose assignee was used.</summary>
 public sealed record AssigneeConflict(SpolRow Row, IReadOnlyList<long> NamingRows);

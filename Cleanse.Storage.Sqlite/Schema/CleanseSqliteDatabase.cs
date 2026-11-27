@@ -55,6 +55,7 @@ public sealed class CleanseSqliteDatabase : IAsyncDisposable
         await UpgradeImportScopeAsync(connection, cancellationToken);
         await UpgradeUsersAsync(connection, cancellationToken);
         await UpgradeHoldingWorkflowAsync(connection, upgradingToHoldings, cancellationToken);
+        await UpgradeImportDatasetsAsync(connection, cancellationToken);
     }
 
     private static async Task<bool> TableExistsAsync(
@@ -155,6 +156,33 @@ public sealed class CleanseSqliteDatabase : IAsyncDisposable
             await copy.ExecuteNonQueryAsync(cancellationToken);
         }
 
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Brings an older import_jobs table up to datasets, mirroring the SpolDatasets migration: each
+    /// job can name the dataset it processed, and counts the users it added.
+    /// </summary>
+    private static async Task UpgradeImportDatasetsAsync(SqliteConnection connection, CancellationToken cancellationToken)
+    {
+        await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken);
+
+        var columns = await ColumnsAsync(connection, transaction, "import_jobs", cancellationToken);
+        foreach (var (name, definition) in new[]
+        {
+            ("dataset_id", "TEXT NULL REFERENCES spol_datasets (id) ON DELETE SET NULL"),
+            ("users_created", "INTEGER NOT NULL DEFAULT 0")
+        })
+        {
+            if (!columns.Contains(name))
+            {
+                await ExecuteAsync(connection, transaction, $"ALTER TABLE import_jobs ADD COLUMN {name} {definition}", cancellationToken);
+            }
+        }
+
+        await ExecuteAsync(connection, transaction,
+            "CREATE INDEX IF NOT EXISTS ix_import_jobs_dataset ON import_jobs (dataset_id) WHERE dataset_id IS NOT NULL",
+            cancellationToken);
         await transaction.CommitAsync(cancellationToken);
     }
 
