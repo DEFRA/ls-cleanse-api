@@ -544,6 +544,64 @@ public abstract class IssueStoreContractTests
         Assert.Empty(page.Items);
     }
 
+    private static IssueFilter OldEnough(DateTimeOffset asOf) =>
+        new() { MinimumAge = new IssueAgeThreshold(TimeSpan.FromDays(14), asOf) };
+
+    [Fact]
+    public async Task Search_leaves_out_issues_younger_than_the_minimum_age_until_they_reach_it()
+    {
+        var old = TestData.NewIssue("old", at: Night1.AddDays(-15));
+        var young = TestData.NewIssue("young", at: Night1.AddDays(-13));
+        var store = await SeedAsync(old, young);
+
+        var page = await store.SearchAsync(OldEnough(Night1));
+
+        Assert.Equal(1, page.TotalCount);
+        Assert.Equal(old.Id.Value, Assert.Single(page.Items).Id.Value);
+        Assert.Equal(2, (await store.SearchAsync(OldEnough(Night1.AddDays(1)))).TotalCount);
+    }
+
+    [Fact]
+    public async Task Search_never_lists_an_issue_the_rules_closed_before_it_reached_the_minimum_age()
+    {
+        var closedEarly = TestData.NewIssue("closed-early", at: Night1.AddDays(-30));
+        closedEarly.Deactivate(Night1.AddDays(-20));
+        var closedLate = TestData.NewIssue("closed-late", at: Night1.AddDays(-30));
+        closedLate.Deactivate(Night1.AddDays(-10));
+
+        // Age counts from when the issue was first raised, so one that came back is listed straight away.
+        var reopened = TestData.NewIssue("reopened", at: Night1.AddDays(-30));
+        reopened.Deactivate(Night1.AddDays(-25));
+        reopened.RecordDetection("run-2", reopened.Context, Night1.AddDays(-1));
+        var store = await SeedAsync(closedEarly, closedLate, reopened);
+
+        var page = await store.SearchAsync(OldEnough(Night1));
+
+        Assert.Equal(
+            new[] { closedLate.Id.Value, reopened.Id.Value }.Order(StringComparer.Ordinal),
+            page.Items.Select(issue => issue.Id.Value).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Grouped_search_counts_only_issues_old_enough_and_drops_a_group_with_none()
+    {
+        var store = await SeedAsync(
+            TestData.NewIssue("A", at: Night1.AddDays(-20)),
+            TestData.NewIssue("A", ruleId: TestData.Rule5, at: Night1.AddDays(-15)),
+            TestData.NewIssue("A", ruleId: "rule7", at: Night1.AddDays(-15)),
+            TestData.NewIssue("A", ruleId: "rule8", at: Night1.AddDays(-2)),
+            TestData.NewIssue("A", ruleId: "rule9", at: Night1.AddDays(-1)),
+            TestData.NewIssue("B", at: Night1.AddDays(-3)));
+
+        var page = await store.SearchGroupedAsync(OldEnough(Night1), "cph");
+
+        Assert.Equal(1, page.TotalCount);
+        var group = Assert.Single(page.Items);
+        Assert.Equal("A", group.Key);
+        Assert.Equal(3, group.IssueCount);
+        Assert.Equal(3, group.Issues.Count);
+    }
+
     [Fact]
     public async Task Count_by_status_breaks_down_both_axes_for_one_group()
     {

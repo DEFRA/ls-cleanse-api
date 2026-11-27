@@ -111,6 +111,15 @@ internal static class SqliteIssueFilter
             Add("updated_at_utc <= $f_updated_before", "$f_updated_before", updatedBefore.ToText());
         }
 
+        if (filter.MinimumAge is { } minimumAge)
+        {
+            Add("created_at_utc <= $f_raised_by", "$f_raised_by", minimumAge.RaisedByUtc.ToText());
+            Add(
+                "(deactivated_at_utc IS NULL OR julianday(deactivated_at_utc) - julianday(created_at_utc) >= $f_minimum_age_days)",
+                "$f_minimum_age_days",
+                minimumAge.Age.TotalDays);
+        }
+
         if (filter.ContextMatches is { Count: > 0 } context)
         {
             var index = 0;

@@ -17,6 +17,7 @@ internal static class Db
     public const string HoldingNotes = "holding_notes";
     public const string HoldingActions = "holding_actions";
     public const string CodedValues = "coded_values";
+    public const string ServiceSettings = "service_settings";
 
     public static class Issue
     {

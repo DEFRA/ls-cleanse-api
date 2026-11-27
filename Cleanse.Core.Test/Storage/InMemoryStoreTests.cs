@@ -57,3 +57,10 @@ public sealed class InMemoryCodedValueStoreTests : CodedValueStoreContractTests
 
     protected override ICodedValueStore CreateStore() => _store;
 }
+
+public sealed class InMemorySettingsStoreTests : SettingsStoreContractTests
+{
+    private readonly InMemorySettingsStore _store = new();
+
+    protected override ISettingsStore CreateStore() => _store;
+}

@@ -44,6 +44,8 @@ internal sealed class SqliteHarness : IAsyncDisposable
 
     public SqliteCodedValueStore CodedValues => new(_database);
 
+    public SqliteSettingsStore Settings => new(_database);
+
     public ValueTask DisposeAsync() => _database.DisposeAsync();
 }
 
@@ -128,6 +130,15 @@ public sealed class SqliteCodedValueStoreTests : CodedValueStoreContractTests, I
     private readonly SqliteHarness _harness = new();
 
     protected override ICodedValueStore CreateStore() => _harness.CodedValues;
+
+    public ValueTask DisposeAsync() => _harness.DisposeAsync();
+}
+
+public sealed class SqliteSettingsStoreTests : SettingsStoreContractTests, IAsyncDisposable
+{
+    private readonly SqliteHarness _harness = new();
+
+    protected override ISettingsStore CreateStore() => _harness.Settings;
 
     public ValueTask DisposeAsync() => _harness.DisposeAsync();
 }

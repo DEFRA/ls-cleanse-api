@@ -114,4 +114,12 @@
                  stripComments="false"/>
     </changeSet>
 
+    <changeSet id="0011-service-settings" author="cleanse" runOnChange="false" runInTransaction="false">
+        <comment>Service-wide settings, starting with the minimum age an issue must reach to be listed.</comment>
+        <sqlFile path="sql/0011_service_settings.sql"
+                 relativeToChangelogFile="true"
+                 splitStatements="false"
+                 stripComments="false"/>
+    </changeSet>
+
 </databaseChangeLog>

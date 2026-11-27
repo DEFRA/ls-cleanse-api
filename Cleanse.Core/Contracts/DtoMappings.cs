@@ -61,6 +61,8 @@ internal static class DtoMappings
         value.CreatedAtUtc,
         value.UpdatedAtUtc);
 
+    public static SettingsDto ToDto(this ServiceSettings settings) => new(settings.MinimumIssueAgeDays);
+
     public static RuleRunDto ToDto(this RuleRun run, DateTimeOffset now) => new(
         run.RunId,
         run.GroupId,

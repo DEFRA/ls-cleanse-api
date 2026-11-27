@@ -23,7 +23,7 @@ public static class IssueEndpoints
         group.MapGet(string.Empty, Search)
             .WithName("SearchIssues")
             .WithSummary("Search issues.")
-            .WithDescription("Filter by assignedUserId (nonempty GUID), or unassigned=true for issues whose holding has no assignee. Assignment belongs to the holding: an issue matches through the holding its CPH names. These filters cannot be combined. Omitted filters or unassigned=false include all assignments.")
+            .WithDescription("Filter by assignedUserId (nonempty GUID), or unassigned=true for issues whose holding has no assignee. Assignment belongs to the holding: an issue matches through the holding its CPH names. These filters cannot be combined. Omitted filters or unassigned=false include all assignments. applyMinimumAge=true leaves out issues raised fewer days ago than the minimumIssueAgeDays setting, and those the rules closed before they reached that age.")
             .Produces<PagedResult<IssueDto>>()
             .ProducesProblem(StatusCodes.Status400BadRequest);
         group.MapGet("/by-cph", SearchByCph)
@@ -101,7 +101,8 @@ public static class IssueEndpoints
             return TypedResults.Problem(title: "Invalid request", detail: error, statusCode: 400);
         }
 
-        var result = await dispatcher.QueryAsync(new SearchIssuesQuery(filter), cancellationToken);
+        var result = await dispatcher.QueryAsync(
+            new SearchIssuesQuery(filter, parameters.ApplyMinimumAge == true), cancellationToken);
         return result.ToHttpResult();
     }
 
@@ -115,7 +116,8 @@ public static class IssueEndpoints
             return TypedResults.Problem(title: "Invalid request", detail: error, statusCode: 400);
         }
 
-        var result = await dispatcher.QueryAsync(new SearchIssuesByCphQuery(filter), cancellationToken);
+        var result = await dispatcher.QueryAsync(
+            new SearchIssuesByCphQuery(filter, parameters.ApplyMinimumAge == true), cancellationToken);
         return result.ToHttpResult();
     }
 

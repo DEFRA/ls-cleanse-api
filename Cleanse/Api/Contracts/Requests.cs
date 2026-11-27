@@ -87,3 +87,6 @@ public sealed record AddCodedValueRequest(
     [property: Required, MaxLength(CodedValue.MaxNameLength)] string Name);
 
 public sealed record SetCodedValueActiveRequest([property: Required] bool? IsActive);
+
+public sealed record UpdateSettingsRequest(
+    [property: Required, Range(0, ServiceSettings.MaxMinimumIssueAgeDays)] int? MinimumIssueAgeDays);

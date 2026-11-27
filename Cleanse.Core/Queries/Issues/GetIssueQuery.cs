@@ -21,10 +21,17 @@ internal sealed class GetIssueQueryHandler(IIssueStore issues, IssueReadModel re
     }
 }
 
-/// <summary>The triage list. Filter is declarative so every storage provider can honour it.</summary>
-public sealed record SearchIssuesQuery(IssueFilter Filter) : IQuery<PagedResult<IssueDto>>;
+/// <summary>
+/// The triage list. Filter is declarative so every storage provider can honour it.
+/// <paramref name="ApplyMinimumAge"/> leaves out issues younger than the admin's minimum issue age.
+/// </summary>
+public sealed record SearchIssuesQuery(IssueFilter Filter, bool ApplyMinimumAge = false) : IQuery<PagedResult<IssueDto>>;
 
-internal sealed class SearchIssuesQueryHandler(IIssueStore issues, IssueReadModel readModel)
+internal sealed class SearchIssuesQueryHandler(
+    IIssueStore issues,
+    IssueReadModel readModel,
+    ISettingsStore settings,
+    TimeProvider clock)
     : IQueryHandler<SearchIssuesQuery, PagedResult<IssueDto>>
 {
     public async Task<Result<PagedResult<IssueDto>>> HandleAsync(
@@ -34,7 +41,10 @@ internal sealed class SearchIssuesQueryHandler(IIssueStore issues, IssueReadMode
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(query.Filter);
 
-        var page = await issues.SearchAsync(query.Filter, cancellationToken);
+        var filter = query.ApplyMinimumAge
+            ? await MinimumIssueAge.ApplyAsync(query.Filter, settings, clock, cancellationToken)
+            : query.Filter;
+        var page = await issues.SearchAsync(filter, cancellationToken);
         var items = await readModel.ToDtosAsync(page.Items, cancellationToken);
         return new PagedResult<IssueDto>(items, page.PageNumber, page.PageSize, page.TotalCount);
     }
@@ -44,9 +54,14 @@ internal sealed class SearchIssuesQueryHandler(IIssueStore issues, IssueReadMode
 /// The triage list grouped by CPH. Pages count CPHs, not issues. Each CPH also carries its
 /// holding's status and assignee, which come from all of its issues rather than the matching ones.
 /// </summary>
-public sealed record SearchIssuesByCphQuery(IssueFilter Filter) : IQuery<PagedResult<CphIssuesDto>>;
+public sealed record SearchIssuesByCphQuery(IssueFilter Filter, bool ApplyMinimumAge = false)
+    : IQuery<PagedResult<CphIssuesDto>>;
 
-internal sealed class SearchIssuesByCphQueryHandler(IIssueStore issues, IssueReadModel readModel)
+internal sealed class SearchIssuesByCphQueryHandler(
+    IIssueStore issues,
+    IssueReadModel readModel,
+    ISettingsStore settings,
+    TimeProvider clock)
     : IQueryHandler<SearchIssuesByCphQuery, PagedResult<CphIssuesDto>>
 {
     /// <summary>The context key the rules engine writes the CPH under.</summary>
@@ -59,7 +74,10 @@ internal sealed class SearchIssuesByCphQueryHandler(IIssueStore issues, IssueRea
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(query.Filter);
 
-        var page = await issues.SearchGroupedAsync(query.Filter, CphKey, cancellationToken);
+        var filter = query.ApplyMinimumAge
+            ? await MinimumIssueAge.ApplyAsync(query.Filter, settings, clock, cancellationToken)
+            : query.Filter;
+        var page = await issues.SearchGroupedAsync(filter, CphKey, cancellationToken);
         var matched = page.Items.SelectMany(group => group.Issues).ToList();
         var holdings = await readModel.LoadAsync(matched, cancellationToken);
 
@@ -104,5 +122,21 @@ internal sealed class SearchIssuesByCphQueryHandler(IIssueStore issues, IssueRea
                 holding?.AssignedUserId,
                 HoldingStatuses.SuppressedUntil(all));
         });
+    }
+}
+
+internal static class MinimumIssueAge
+{
+    /// <summary>Read on every search rather than cached, so an admin's change shows on the next one.</summary>
+    public static async Task<IssueFilter> ApplyAsync(
+        IssueFilter filter,
+        ISettingsStore settings,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var days = (await settings.GetAsync(cancellationToken) ?? ServiceSettings.Default).MinimumIssueAgeDays;
+        return days == 0
+            ? filter
+            : filter with { MinimumAge = new IssueAgeThreshold(TimeSpan.FromDays(days), clock.GetUtcNow()) };
     }
 }

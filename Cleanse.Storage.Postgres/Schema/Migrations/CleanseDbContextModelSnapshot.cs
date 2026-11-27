@@ -815,6 +815,26 @@ namespace Cleanse.Storage.Postgres.Schema.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.ServiceSettingsRow", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    b.Property<int>("MinimumIssueAgeDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("minimum_issue_age_days");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("service_settings", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_service_settings_minimum_issue_age_days", "minimum_issue_age_days >= 0");
+
+                            t.HasCheckConstraint("ck_service_settings_one_row", "id = 1");
+                        });
+                });
+
             modelBuilder.Entity("Cleanse.Storage.Postgres.Schema.UserRow", b =>
                 {
                     b.Property<Guid>("Id")

@@ -124,6 +124,25 @@ public sealed class PostgresDataResetTests(PostgresFixture fixture) : IAsyncLife
     }
 
     [Fact]
+    public async Task A_full_reset_keeps_the_settings_and_their_audit()
+    {
+        await SeedAsync(TestData.Group, "run-1", "a");
+        await new PostgresSettingsStore(_harness.NewContext()).SaveAsync(new ServiceSettings(7));
+        await Audit.AppendAsync(AuditEntry.ForSetting(
+            ServiceSettings.MinimumIssueAgeDaysName,
+            new IssueChange(AuditEventKind.SettingChanged, [new AuditChange("MinimumIssueAgeDays", "14", "7")]),
+            TestData.Alice,
+            TestData.Night1));
+
+        var counts = await Reset.ResetAsync(groupId: null, "tester", TestData.Night1);
+
+        Assert.Equal(2, counts.AuditEntries);
+        Assert.Equal(new ServiceSettings(7), await new PostgresSettingsStore(_harness.NewContext()).GetAsync());
+        var subject = AuditSubjects.Setting(ServiceSettings.MinimumIssueAgeDaysName);
+        Assert.Equal(1, (await Audit.GetForSubjectAsync(subject, PageRequest.Default)).TotalCount);
+    }
+
+    [Fact]
     public async Task The_reset_log_survives_the_resets_it_records()
     {
         Assert.Null(await Reset.GetLastResetAsync());

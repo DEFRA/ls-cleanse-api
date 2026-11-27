@@ -24,7 +24,8 @@ public enum AuditEventKind
     HoldingAssigned,
     CodedValueAdded,
     CodedValueActivated,
-    CodedValueDeactivated
+    CodedValueDeactivated,
+    SettingChanged
 }
 
 /// <summary>A single field-level change: what it was, what it became.</summary>
@@ -110,6 +111,16 @@ public sealed record AuditEntry
             AuditSubjects.CodedValue(id));
     }
 
+    public static AuditEntry ForSetting(string name, IssueChange change, Actor actor, DateTimeOffset atUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(change);
+        ArgumentNullException.ThrowIfNull(actor);
+        return new AuditEntry(
+            Guid.CreateVersion7(atUtc), null, null, change.Kind, actor, atUtc, change.Changes,
+            AuditSubjects.Setting(name));
+    }
+
     public static AuditEntry ForRun(
         string runId,
         AuditEventKind kind,
@@ -139,6 +150,7 @@ public static class AuditSubjects
 {
     public const string HoldingPrefix = "holding:";
     public const string CodedValuePrefix = "coded-value:";
+    public const string SettingPrefix = "setting:";
 
     public static string Holding(HoldingKey holding) => $"{HoldingPrefix}{holding.GroupId}:{holding.Cph}";
 
@@ -146,4 +158,6 @@ public static class AuditSubjects
     public static string HoldingsInGroup(string groupId) => $"{HoldingPrefix}{groupId}:";
 
     public static string CodedValue(Guid id) => $"{CodedValuePrefix}{id:D}";
+
+    public static string Setting(string name) => $"{SettingPrefix}{name}";
 }

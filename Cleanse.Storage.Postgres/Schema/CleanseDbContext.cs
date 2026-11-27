@@ -33,6 +33,8 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
 
     internal DbSet<CodedValueRow> CodedValues => Set<CodedValueRow>();
 
+    internal DbSet<ServiceSettingsRow> ServiceSettings => Set<ServiceSettingsRow>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -48,8 +50,27 @@ public sealed class CleanseDbContext(DbContextOptions<CleanseDbContext> options)
         ConfigureDataResets(modelBuilder);
         ConfigureUsers(modelBuilder);
         ConfigureCodedValues(modelBuilder);
+        ConfigureServiceSettings(modelBuilder);
         ConfigureHoldings(modelBuilder);
     }
+
+    /// <summary>
+    /// One row, absent until an admin first saves. A reset keeps it, and the audit log records who
+    /// changed it and when.
+    /// </summary>
+    private static void ConfigureServiceSettings(ModelBuilder modelBuilder) =>
+        modelBuilder.Entity<ServiceSettingsRow>(entity =>
+        {
+            entity.ToTable(Db.ServiceSettings, table =>
+            {
+                table.HasCheckConstraint("ck_service_settings_one_row", "id = 1");
+                table.HasCheckConstraint("ck_service_settings_minimum_issue_age_days", "minimum_issue_age_days >= 0");
+            });
+
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id").ValueGeneratedNever();
+            entity.Property(e => e.MinimumIssueAgeDays).HasColumnName("minimum_issue_age_days");
+        });
 
     /// <summary>
     /// The admin-maintained lists. Never deleted, by a reset or otherwise, because notes, actions

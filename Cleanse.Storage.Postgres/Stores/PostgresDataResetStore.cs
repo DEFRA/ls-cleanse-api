@@ -45,11 +45,13 @@ internal sealed class PostgresDataResetStore(CleanseDbContext db) : IDataResetSt
              """);
 
         // Has to precede both tables it reads: audit rows reach their group through them. The
-        // admin lists outlive a reset, so their audit does too.
+        // admin lists and settings outlive a reset, so their audit does too.
         var audit = await DeleteAsync(
             $"""
              DELETE FROM {Db.AuditEntries}
-             WHERE subject IS NULL OR NOT starts_with(subject, '{AuditSubjects.CodedValuePrefix}')
+             WHERE subject IS NULL
+                OR NOT (starts_with(subject, '{AuditSubjects.CodedValuePrefix}')
+                        OR starts_with(subject, '{AuditSubjects.SettingPrefix}'))
              """,
             $"""
              DELETE FROM {Db.AuditEntries}

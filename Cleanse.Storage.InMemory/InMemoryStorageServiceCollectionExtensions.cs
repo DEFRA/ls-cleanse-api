@@ -17,6 +17,7 @@ public static class InMemoryStorageServiceCollectionExtensions
         services.TryAddSingleton<InMemoryHoldingStore>();
         services.TryAddSingleton<InMemoryHoldingActivityStore>();
         services.TryAddSingleton<InMemoryCodedValueStore>();
+        services.TryAddSingleton<InMemorySettingsStore>();
         services.TryAddSingleton<InMemoryIssueStore>();
         services.TryAddSingleton<InMemoryAuditStore>();
         services.TryAddSingleton<InMemoryIssueHistoryStore>();
@@ -30,6 +31,7 @@ public static class InMemoryStorageServiceCollectionExtensions
         services.TryAddSingleton<IHoldingStore>(sp => sp.GetRequiredService<InMemoryHoldingStore>());
         services.TryAddSingleton<IHoldingActivityStore>(sp => sp.GetRequiredService<InMemoryHoldingActivityStore>());
         services.TryAddSingleton<ICodedValueStore>(sp => sp.GetRequiredService<InMemoryCodedValueStore>());
+        services.TryAddSingleton<ISettingsStore>(sp => sp.GetRequiredService<InMemorySettingsStore>());
         services.TryAddSingleton<IAuditStore>(sp => sp.GetRequiredService<InMemoryAuditStore>());
         services.TryAddSingleton<IIssueHistoryStore>(sp => sp.GetRequiredService<InMemoryIssueHistoryStore>());
         services.TryAddSingleton<IRuleRunStore>(sp => sp.GetRequiredService<InMemoryRuleRunStore>());

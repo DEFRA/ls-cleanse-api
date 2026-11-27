@@ -59,6 +59,9 @@ public sealed record IssueFilter
 
     public DateTimeOffset? UpdatedBeforeUtc { get; init; }
 
+    /// <summary>Leaves out issues that have not yet reached this age, and those the rules closed before they did.</summary>
+    public IssueAgeThreshold? MinimumAge { get; init; }
+
     /// <summary>Case-insensitive match across the id, notes and context values.</summary>
     public string? SearchTerm { get; init; }
 
@@ -72,6 +75,16 @@ public sealed record IssueFilter
     public SortDirection GroupSortDirection { get; init; } = SortDirection.Descending;
 
     public PageRequest Page { get; init; } = PageRequest.Default;
+}
+
+/// <summary>
+/// An issue matches when it was raised at least <see cref="Age"/> before <see cref="AsOfUtc"/>
+/// and, if the rules have closed it, was still open when it reached that age.
+/// </summary>
+public sealed record IssueAgeThreshold(TimeSpan Age, DateTimeOffset AsOfUtc)
+{
+    /// <summary>The latest an issue can have been raised and still match.</summary>
+    public DateTimeOffset RaisedByUtc => (AsOfUtc - Age).ToUniversalTime();
 }
 
 public sealed record IssueStatusCount(IssueStatus Status, WorkflowStatus WorkflowStatus, int Count);
